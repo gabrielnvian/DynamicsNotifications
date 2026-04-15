@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Dynamics Notifications</h1>
+
+    <div class="setting-row toggle-row">
+      <label for="enabled">Enabled</label>
+      <input type="checkbox" id="enabled" checked>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="setting-row">
+      <label for="volume">Volume</label>
+      <div class="volume-control">
+        <input type="range" id="volume" min="0" max="100" value="100">
+        <span id="volumeValue">100%</span>
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <label for="ringtone">Ringtone</label>
+      <select id="ringtone">
+        <option value="agent.mp3">Agent</option>
+        <option value="teams.mp3">Teams Remix</option>
+        <option value="discord.mp3">Discord</option>
+        <option value="skype.mp3">Skype</option>
+      </select>
+    </div>
+
+    <div class="setting-row">
+      <label for="audioDevice">Audio Output</label>
+      <select id="audioDevice">
+        <option value="">Default</option>
+      </select>
+    </div>
+    <p class="hint">Chrome requires microphone access to list audio output devices by name. No audio is recorded or transmitted.</p>
+
+    <div class="divider"></div>
+
+    <h2>Alert Types</h2>
+
+    <div class="setting-row">
+      <label for="alertSound">Ringtone Sound</label>
+      <input type="checkbox" id="alertSound" checked>
+    </div>
+    <div class="setting-row">
+      <label for="alertNotification">Desktop Notification</label>
+      <input type="checkbox" id="alertNotification" checked>
+    </div>
+    <div class="setting-row">
+      <label for="alertWindow">In-Page Alert Card</label>
+      <input type="checkbox" id="alertWindow" checked>
+    </div>
+    <div class="setting-row">
+      <label for="alertVisualOverlay">Pulsing Border</label>
+      <input type="checkbox" id="alertVisualOverlay" checked>
+    </div>
+    <div class="setting-row">
+      <label for="alertFullscreenFlash">Fullscreen Flash</label>
+      <input type="checkbox" id="alertFullscreenFlash" checked>
+    </div>
+
+    <div class="divider"></div>
+
+    <h2>When Computer is Locked</h2>
+
+    <div class="setting-row">
+      <label for="lockAutoPresence">Auto-set Dynamics presence to Busy</label>
+      <input type="checkbox" id="lockAutoPresence" checked>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="status-row">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Idle</span>
+    </div>
+
+    <button id="testBtn" class="test-btn">Test Alerts</button>
+    <p class="credits">Made by Gabriel Vian</p>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
