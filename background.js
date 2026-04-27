@@ -274,6 +274,8 @@ chrome.notifications.onClosed.addListener((notificationId, byUser) => {
 
 // ── Lock/unlock presence handling ───────────────────────────────────────
 let wasLocked = false;
+let lockCloseTabsTimeout = null;
+const LOCK_CLOSE_TAB_DELAY_MS = 10_000;
 
 function broadcastToDynamicsTabs(message) {
   chrome.tabs.query({ url: '*://*.dynamics.com/*' }, (tabs) => {
@@ -283,13 +285,38 @@ function broadcastToDynamicsTabs(message) {
   });
 }
 
+function closeAllDynamicsTabs() {
+  chrome.tabs.query({ url: '*://*.dynamics.com/*' }, (tabs) => {
+    for (const tab of tabs) {
+      chrome.tabs.remove(tab.id).catch(() => {});
+    }
+  });
+}
+
+function cancelScheduledTabClose() {
+  if (lockCloseTabsTimeout !== null) {
+    clearTimeout(lockCloseTabsTimeout);
+    lockCloseTabsTimeout = null;
+  }
+}
+
 chrome.idle.onStateChanged.addListener((state) => {
   if (state === 'locked') {
     wasLocked = true;
     stopAll();
     broadcastToDynamicsTabs({ type: 'LOCK_SET_PRESENCE' });
+
+    chrome.storage.sync.get({ lockCloseTabs: true }, ({ lockCloseTabs }) => {
+      if (!lockCloseTabs) return;
+      cancelScheduledTabClose();
+      lockCloseTabsTimeout = setTimeout(() => {
+        lockCloseTabsTimeout = null;
+        closeAllDynamicsTabs();
+      }, LOCK_CLOSE_TAB_DELAY_MS);
+    });
   } else if (state === 'active' && wasLocked) {
     wasLocked = false;
+    cancelScheduledTabClose();
     broadcastToDynamicsTabs({ type: 'LOCK_RESTORE_PRESENCE' });
   }
 });

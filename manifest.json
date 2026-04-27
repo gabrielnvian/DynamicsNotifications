@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Dynamics Notifications",
-  "version": "1.5",
+  "version": "1.6",
   "description": "Aggressive alerts for incoming calls in Dynamics 365 Omnichannel — never miss a call again",
   "permissions": ["notifications", "storage", "offscreen", "idle"],
   "host_permissions": ["*://*.dynamics.com/*"],

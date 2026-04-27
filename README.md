@@ -12,6 +12,7 @@ Dynamics' default call popup is easy to miss if you're in another tab or window.
 - **Pulsing border** — animated blue border around the entire viewport
 - **Fullscreen flash** — subtle pulsing overlay so the screen is visible from across the room
 - **Auto-Busy on lock** — optionally sets your Dynamics presence to Busy when the computer is locked and restores it on unlock
+- **Auto-close on lock** — optionally closes Dynamics tabs 10 seconds after the computer is locked (cancelled if you unlock first)
 
 Each alert type can be toggled independently from the popup.
 
