@@ -1,6 +1,8 @@
 // Dynamics Notifications — Service Worker (background.js)
 // Handles: offscreen audio, desktop notifications, alert window, badge, tab focus
 
+import * as metrics from './metrics.js';
+
 let callingTabId = null;
 let notificationInterval = null;
 let notificationCounter = 0;
@@ -9,22 +11,23 @@ let callActive = false; // gate flag to prevent race conditions
 // Allow content scripts to read/write chrome.storage.session (for savedPresence on lock/unlock)
 chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CONTEXTS' }).catch(() => {});
 
-// ── Startup: pre-create offscreen doc so permissions are prompted early ──
+// ── Startup: pre-create the offscreen doc so the ringtone can play instantly ──
 chrome.runtime.onInstalled.addListener(() => {
   initOffscreen();
+  initMetrics();
 });
 chrome.runtime.onStartup.addListener(() => {
   initOffscreen();
+  initMetrics();
+  metrics.flush();
 });
 
 async function initOffscreen() {
+  // Pre-create the offscreen document so the ringtone plays instantly on the first
+  // call. Do NOT enumerate audio devices here — that calls getUserMedia and would
+  // fire a microphone prompt at install. Device labels load lazily only when the
+  // operator opens the popup's audio-output picker (see popup.js GET_DEVICES).
   await ensureOffscreen();
-  // Trigger mic permission prompt + pre-decode ringtone
-  // GET_DEVICES calls getUserMedia which triggers the permission prompt
-  chrome.runtime.sendMessage({
-    target: 'offscreen',
-    type: 'GET_DEVICES'
-  }).catch(() => {});
 }
 
 // ── Offscreen Document Management ───────────────────────────────────────
@@ -180,6 +183,11 @@ function focusDynamicsTab() {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.target === 'offscreen') return;
 
+  if (message.type && message.type.startsWith('METRIC_')) {
+    handleMetricMessage(message);
+    return false;
+  }
+
   if (message.type === 'CALL_DETECTED') {
     callActive = true;
     callingTabId = sender.tab?.id ?? null;
@@ -301,6 +309,8 @@ function cancelScheduledTabClose() {
 }
 
 chrome.idle.onStateChanged.addListener((state) => {
+  metrics.withLock(() => updateMetricsInput({ idle: state })).then(() => pushPresence());
+
   if (state === 'locked') {
     wasLocked = true;
     stopAll();
@@ -345,4 +355,114 @@ chrome.storage.onChanged.addListener((changes, area) => {
       ringtone: changes.ringtone.newValue
     }).catch(() => {});
   }
+});
+
+// ── Team Metrics wiring (mandatory; all logic in metrics.js) ──────────────
+function initMetrics() {
+  chrome.alarms.create('metricsFlush', { periodInMinutes: 1 });
+  metrics.ensureInstallId().catch(() => {});
+  // chrome.idle.onStateChanged doesn't fire an initial event, so a 'locked'/'idle'
+  // value persisted from last session would stick after a reboot and mis-report an
+  // active operator as "away" with zero available time. Seed the real state now.
+  chrome.idle.setDetectionInterval(60);
+  chrome.idle.queryState(60, (state) => {
+    metrics.withLock(() => updateMetricsInput({ idle: state }));
+  });
+}
+
+function hasDynamicsTab() {
+  return new Promise((resolve) => {
+    chrome.tabs.query({ url: '*://*.dynamics.com/*' }, (tabs) => resolve(tabs.length > 0));
+  });
+}
+
+async function updateMetricsInput(patch, now = Date.now()) {
+  const stored = await chrome.storage.local.get('metrics.inputs');
+  const merged = { ...(stored['metrics.inputs'] || {}), ...patch };
+  await chrome.storage.local.set({ 'metrics.inputs': merged });
+  await recomputeAvailability(now);
+}
+
+async function recomputeAvailability(now = Date.now()) {
+  const stored = await chrome.storage.local.get('metrics.inputs');
+  const inputs = stored['metrics.inputs'] || {};
+  const hasTab = await hasDynamicsTab();
+  // Same rule as the live status: idle-but-unlocked still counts as available for
+  // calls; only a locked screen (stepped away) stops the available-time clock.
+  const available =
+    hasTab && inputs.idle !== 'locked' && inputs.presence === 'available';
+  await metrics.setEffectiveAvailable(available, now);
+}
+
+// ── Live presence board — best-effort heartbeat (POST /v1/presence) ────────
+// Fire-and-forget: liveness is disposable, so no durable queue. We only POST while
+// a Dynamics tab is open (content-script ticks drive the cadence), so a closed tab
+// simply stops beating and the server reads the operator as offline via staleness.
+async function pushPresence(now = Date.now()) {
+  const stored = await chrome.storage.local.get('metrics.inputs');
+  const inputs = stored['metrics.inputs'] || {};
+  const hasTab = await hasDynamicsTab();
+  if (!hasTab) return;
+
+  // Idle (no keyboard/mouse for a while) does NOT make an operator unavailable — an
+  // agent waiting for calls isn't constantly typing. Only a LOCKED screen (they
+  // actually stepped away) counts as away.
+  let status;
+  if (inputs.idle === 'locked') status = 'away';
+  else if (inputs.inCall) status = 'on_call';
+  else if (inputs.presence === 'available') status = 'available';
+  else status = 'away';
+
+  await metrics.sendPresence(status);
+}
+
+async function handleMetricMessage(message) {
+  const now = Date.now();
+  switch (message.type) {
+    case 'METRIC_TICK':
+      await pushPresence(now);
+      break;
+    case 'METRIC_PRESENCE':
+      await metrics.withLock(() =>
+        updateMetricsInput({ presence: message.available ? 'available' : 'other' }, now),
+      );
+      await pushPresence(now);
+      break;
+    case 'METRIC_CALL_STATE':
+      await metrics.withLock(() => updateMetricsInput({ inCall: !!message.inCall }, now));
+      await pushPresence(now);
+      break;
+    case 'METRIC_CALL_RECEIVED':
+      await metrics.withLock(() => metrics.recordCallReceived(now));
+      break;
+    case 'METRIC_CALL_ANSWERED':
+      await metrics.withLock(() => metrics.recordCallAnswered(message.ttaMs, now));
+      break;
+    case 'METRIC_CALL_ENDED':
+      await metrics.withLock(() => metrics.recordCallEnded(message.handleMs, now));
+      metrics.flush();
+      break;
+  }
+}
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name !== 'metricsFlush') return;
+  (async () => {
+    await metrics.withLock(() => metrics.tickIfAvailable());
+    await metrics.sweepOld();
+    await metrics.flush();
+    // Throttle-proof presence keepalive: the content-script 15s heartbeat slows to
+    // ~1/min when its Dynamics tab is backgrounded, but this alarm fires regardless,
+    // so a working operator on another tab still reads "available", not offline.
+    await pushPresence();
+  })();
+});
+
+chrome.tabs.onRemoved.addListener(() => {
+  metrics.withLock(() => recomputeAvailability());
+});
+
+chrome.tabs.onUpdated.addListener((tabId, info) => {
+  if (info.status !== 'complete') return;
+  metrics.withLock(() => recomputeAvailability());
 });

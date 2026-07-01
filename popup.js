@@ -38,6 +38,17 @@ chrome.storage.sync.get(DEFAULTS, (settings) => {
   loadAudioDevices(settings.audioDeviceId);
 });
 
+// ── Team Metrics (mandatory) — show which operator metrics are attributed to ─
+function showRecordingAs(name) {
+  const el = document.getElementById('metricsRecordingAs');
+  if (el) el.textContent = name || 'detecting…';
+}
+chrome.storage.sync.get({ metricsFirstName: '' }, ({ metricsFirstName }) => showRecordingAs(metricsFirstName));
+// Live-update if the name is auto-detected while the popup is open (no stale "detecting…").
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'sync' && changes.metricsFirstName) showRecordingAs(changes.metricsFirstName.newValue);
+});
+
 // ── Audio Device Enumeration (via offscreen document) ───────────────────
 function loadAudioDevices(selectedId) {
   // Retry a few times — offscreen doc may still be loading its script
@@ -121,3 +132,4 @@ document.getElementById('testBtn').addEventListener('click', () => {
     updateStatus(false);
   }, 5000);
 });
+

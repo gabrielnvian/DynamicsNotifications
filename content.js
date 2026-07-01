@@ -58,6 +58,7 @@
   }
 
   // ── State ─────────────────────────────────────────────────────────────
+  let metricsCheck = null; // set by the Team Metrics sensor block below
   let alertsActive = false;
   let dismissedCallHeader = null;
   let pollingInterval = null;
@@ -365,7 +366,10 @@
     }
   }
 
-  const observer = new MutationObserver(() => checkForPopup());
+  const observer = new MutationObserver(() => {
+    checkForPopup();
+    if (metricsCheck) metricsCheck();
+  });
 
   observer.observe(document.body, {
     childList: true,
@@ -460,6 +464,184 @@
     await changePresence(savedPresence);
     await chrome.storage.session.remove('savedPresence');
   }
+
+  // ── Team Metrics sensors (mandatory; fully decoupled from the alert path) ─
+  // Emits METRIC_* messages only; background.js does all storage/delivery.
+  // Never reads caller data.
+  (() => {
+    // Selectors confirmed live on the csusm tenant (RED, cohub #1999):
+    const AVAILABLE_LABEL = 'available';                                      // presence aria-label === "Available"
+    const NAME_SEL = '#mectrl_currentAccount_primary';                        // O365 "me" control → full name (first token only)
+    const SESSION_LIST_SEL = 'div[role="tablist"][aria-label="Session list"]';
+    const SESSION_TAB_SEL = 'button[role="tab"][id^="session-id-"]';
+
+    // Live call tracking = Phase B. Needs a live call to confirm a voice call opens
+    // a session-id tab in the list above. Gates BOTH the "on_call" live status and
+    // the handle-time metric (accept → session-tab detach); kept OFF until the live
+    // check, so no on_call / METRIC_CALL_ENDED is emitted meanwhile.
+    const CALL_TRACKING_ENABLED = false;
+    const HANDLE_CAP_MS = 4 * 60 * 60 * 1000;
+    const TAB_WAIT_MS = 8000;
+
+    const HEARTBEAT_MS = 15_000;   // live-board keepalive while a Dynamics tab is open (on-change beats fire immediately)
+
+    let lastAvailable = null;
+    let inCallLocal = false;
+    let ringKey = null, tRing = 0, tAnswer = 0, preTabIds = [];
+    let handleObserver = null, handleCap = null, tabPoll = null, trackedTab = null;
+
+    // — Auto first-name from Dynamics (first token only; never the full name) —
+    async function detectFirstName() {
+      const el = document.querySelector(NAME_SEL);
+      const full = (el?.textContent || el?.getAttribute('aria-label') || '').trim();
+      if (!full) return;
+      const first = full.split(/\s+/)[0].slice(0, 40);
+      if (!/^\p{L}[\p{L}.'\-]*$/u.test(first)) return;
+      try {
+        const { metricsFirstName } = await chrome.storage.sync.get({ metricsFirstName: '' });
+        // Track the currently signed-in operator so metrics always attribute to the
+        // person actually logged into Dynamics (handles shared workstations).
+        if (metricsFirstName !== first) {
+          await chrome.storage.sync.set({ metricsFirstName: first });
+          heartbeat(); // report to the live board immediately now that we have an identity
+        }
+      } catch (_) {}
+    }
+
+    // The M365 account control can render AFTER the content script loads, so a single
+    // read often misses it (and nothing is sent without a first name). Wait for it,
+    // re-read on changes, and net a periodic re-check (also catches an account switch
+    // on a shared workstation).
+    async function initFirstName() {
+      const el = await waitForElement(NAME_SEL, 60000);
+      await detectFirstName();
+      if (el) {
+        new MutationObserver(detectFirstName).observe(el, {
+          childList: true, subtree: true, characterData: true,
+          attributes: true, attributeFilter: ['aria-label'],
+        });
+      }
+      setInterval(detectFirstName, 30000);
+      document.addEventListener('visibilitychange', detectFirstName);
+    }
+
+    // — Presence sensor —
+    function readAvailable() {
+      const b = document.querySelector(PRESENCE_BUTTON_SEL);
+      if (!b) return null;
+      const label = (b.getAttribute('aria-label') || '').trim().toLowerCase();
+      return label ? label.includes(AVAILABLE_LABEL) : null;
+    }
+    function reportPresence() {
+      const a = readAvailable();
+      if (a === null || a === lastAvailable) return;
+      lastAvailable = a;
+      safeSendMessage({ type: 'METRIC_PRESENCE', available: a });
+    }
+    async function initPresence() {
+      const btn = await waitForElement(PRESENCE_BUTTON_SEL, 60000);
+      reportPresence();
+      if (btn) {
+        new MutationObserver(reportPresence).observe(btn, {
+          attributes: true,
+          attributeFilter: ['aria-label']
+        });
+      }
+      setInterval(reportPresence, 30000);          // freshness net for missed mutations
+      document.addEventListener('visibilitychange', reportPresence);
+    }
+
+    // — Handle-time helpers (Phase B; only run when CALL_TRACKING_ENABLED) —
+    function sessionTabIds() {
+      const c = document.querySelector(SESSION_LIST_SEL);
+      return c ? [...c.querySelectorAll(SESSION_TAB_SEL)].map((t) => t.id) : [];
+    }
+    function stopHandle() {
+      if (handleObserver) { handleObserver.disconnect(); handleObserver = null; }
+      if (handleCap) { clearTimeout(handleCap); handleCap = null; }
+      if (tabPoll) { clearInterval(tabPoll); tabPoll = null; }
+      trackedTab = null;
+    }
+    function endHandle(handleMs) {
+      // Honest degradation: only emit when we actually measured the end. A missed
+      // or capped end contributes nothing to avg handle (never an infinite value).
+      if (tAnswer && handleMs != null && handleMs >= 0 && handleMs <= HANDLE_CAP_MS) {
+        safeSendMessage({ type: 'METRIC_CALL_ENDED', handleMs });
+      }
+      resetCall();
+    }
+    function startHandle() {
+      stopHandle();
+      // The call opens a NEW session tab; find the id absent at ring time, then
+      // fire when that tab detaches (session closed = handle-time end).
+      const deadline = Date.now() + TAB_WAIT_MS;
+      tabPoll = setInterval(() => {
+        const newId = sessionTabIds().find((id) => !preTabIds.includes(id));
+        if (newId) {
+          clearInterval(tabPoll); tabPoll = null;
+          trackedTab = document.getElementById(newId);
+          const container = document.querySelector(SESSION_LIST_SEL) || document.body;
+          if (trackedTab) {
+            handleObserver = new MutationObserver(() => {
+              if (trackedTab && !trackedTab.isConnected) endHandle(Date.now() - tAnswer);
+            });
+            handleObserver.observe(container, { childList: true, subtree: true });
+          }
+        } else if (Date.now() > deadline) {
+          clearInterval(tabPoll); tabPoll = null;   // no tab found; rely on the cap
+        }
+      }, 500);
+      handleCap = setTimeout(() => endHandle(null), HANDLE_CAP_MS);
+    }
+
+    // — Live status heartbeat + on-call signal —
+    function heartbeat() { safeSendMessage({ type: 'METRIC_TICK' }); }
+    function setInCall(v) {
+      if (inCallLocal === v) return;          // only signal on change
+      inCallLocal = v;
+      safeSendMessage({ type: 'METRIC_CALL_STATE', inCall: v });
+    }
+
+    // — Call-lifecycle tracker —
+    function resetCall() { setInCall(false); stopHandle(); ringKey = null; tRing = 0; tAnswer = 0; preTabIds = []; }
+    // Ring notification gone (answered, declined, or timed out): re-arm ring dedupe so
+    // the NEXT call is tracked even if it shares the same header text — WITHOUT tearing
+    // down any in-progress handle tracking (Phase B keeps running on the session tab).
+    function clearRing() { ringKey = null; tRing = 0; }
+    function onAccept() {
+      if (!tRing || tAnswer) return;
+      tAnswer = Date.now();
+      safeSendMessage({ type: 'METRIC_CALL_ANSWERED', ttaMs: tAnswer - tRing });
+      if (CALL_TRACKING_ENABLED) { setInCall(true); startHandle(); }
+    }
+    function onDecline() { resetCall(); }
+    function onRing(popup) {
+      const key = popup.querySelector('#popupNotificationHeaderText')?.textContent?.trim() || '__call__';
+      if (ringKey === key) return;            // same call already tracked
+      ringKey = key; tRing = Date.now(); tAnswer = 0;
+      preTabIds = CALL_TRACKING_ENABLED ? sessionTabIds() : [];
+      safeSendMessage({ type: 'METRIC_CALL_RECEIVED' });
+      const accept = document.querySelector('#acceptButton');
+      const decline = document.querySelector('#declineButton');
+      if (accept) accept.addEventListener('click', onAccept, { capture: true, once: true });
+      if (decline) decline.addEventListener('click', onDecline, { capture: true, once: true });
+    }
+    function checkCalls() {
+      const popup = document.querySelector('#popupNotificationRoot');
+      const isCall = popup && popup.querySelector('img[src*="phonecallicon"]');
+      if (isCall) onRing(popup);
+      else if (!popup && ringKey) clearRing();   // ring notification dismissed → re-arm for next call
+    }
+
+    metricsCheck = checkCalls;   // ride the existing document.body observer
+    initFirstName();
+    initPresence();
+    checkCalls();
+
+    heartbeat();                                   // announce presence immediately
+    setInterval(heartbeat, HEARTBEAT_MS);          // keep the live board fresh
+    document.addEventListener('visibilitychange', heartbeat);
+  })();
 
   // ── Message Handling (from popup/background) ──────────────────────────
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

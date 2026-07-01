@@ -156,3 +156,9 @@ select {
   color: #e65100;
   text-align: center;
 }
+
+.value-readonly {
+  font-size: 13px;
+  font-weight: 600;
+  color: #444;
+}
