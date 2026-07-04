@@ -472,18 +472,23 @@
     // Selectors confirmed live on the csusm tenant (RED, cohub #1999):
     const AVAILABLE_LABEL = 'available';                                      // presence aria-label === "Available"
     const NAME_SEL = '#mectrl_currentAccount_primary';                        // O365 "me" control → full name (first token only)
-    const SESSION_LIST_SEL = 'div[role="tablist"][aria-label="Session list"]';
-    const SESSION_TAB_SEL = 'button[role="tab"][id^="session-id-"]';
+    // The call opens a conversation SESSION tab: <div|button role="tab" id="session-id-N">.
+    // On this tenant the CALL tab is a <div> (Home/Inbox are <button>s), so match by
+    // role + id, NOT by tag — that one-tag assumption was the original miss (cohub #2232).
+    const SESSION_TAB_SEL = '[role="tab"][id^="session-id-"]';
 
-    // Live call tracking = Phase B. Needs a live call to confirm a voice call opens
-    // a session-id tab in the list above. Gates BOTH the "on_call" live status and
-    // the handle-time metric (accept → session-tab detach); kept OFF until the live
-    // check, so no on_call / METRIC_CALL_ENDED is emitted meanwhile.
-    const CALL_TRACKING_ENABLED = false;
+    // Live call tracking = Phase B. Drives BOTH the "on_call" live status and the
+    // handle-time metric. Live-validated (cohub #2232/#2235): a voice call opens a new
+    // session tab on accept; it detaches when the conversation session CLOSES — the end
+    // of wrap-up. So duration = accept → close = handle time incl. wrap-up ("call time"),
+    // and on_call holds through wrap-up until the session closes. The [calltrack] console
+    // logs narrate the lifecycle for DevTools diagnosis.
+    const CALL_TRACKING_ENABLED = true;
     const HANDLE_CAP_MS = 4 * 60 * 60 * 1000;
-    const TAB_WAIT_MS = 8000;
+    const TAB_WAIT_MS = 30000;   // generous window for the session tab to appear after accept
+    const ct = (...a) => console.log('[Dynamics Notifications][calltrack]', ...a);
 
-    const HEARTBEAT_MS = 15_000;   // live-board keepalive while a Dynamics tab is open (on-change beats fire immediately)
+    const HEARTBEAT_MS = 5_000;    // live-board keepalive while a Dynamics tab is open (on-change beats fire immediately)
 
     let lastAvailable = null;
     let inCallLocal = false;
@@ -534,7 +539,15 @@
     }
     function reportPresence() {
       const a = readAvailable();
-      if (a === null || a === lastAvailable) return;
+      if (a === null) return;
+      // Call-end signal for the LIVE status: Dynamics auto-sets presence to "Do not
+      // disturb" during a call and returns it to "Available" at hangup. So the moment
+      // the operator is Available again, the call is over — end it (clears on_call, emits
+      // the handle time). This makes on_call mean *actually on a call* and prevents a
+      // stuck on_call if the session tab is left open in wrap-up. The session-tab detach
+      // below stays a backstop for the rarer "went Away straight after the call" case.
+      if (inCallLocal && a === true) endHandle(Date.now() - tAnswer);
+      if (a === lastAvailable) return;
       lastAvailable = a;
       safeSendMessage({ type: 'METRIC_PRESENCE', available: a });
     }
@@ -551,10 +564,9 @@
       document.addEventListener('visibilitychange', reportPresence);
     }
 
-    // — Handle-time helpers (Phase B; only run when CALL_TRACKING_ENABLED) —
+    // — Handle-time helpers (Phase B) —
     function sessionTabIds() {
-      const c = document.querySelector(SESSION_LIST_SEL);
-      return c ? [...c.querySelectorAll(SESSION_TAB_SEL)].map((t) => t.id) : [];
+      return [...document.querySelectorAll(SESSION_TAB_SEL)].map((t) => t.id);
     }
     function stopHandle() {
       if (handleObserver) { handleObserver.disconnect(); handleObserver = null; }
@@ -563,32 +575,38 @@
       trackedTab = null;
     }
     function endHandle(handleMs) {
-      // Honest degradation: only emit when we actually measured the end. A missed
-      // or capped end contributes nothing to avg handle (never an infinite value).
-      if (tAnswer && handleMs != null && handleMs >= 0 && handleMs <= HANDLE_CAP_MS) {
-        safeSendMessage({ type: 'METRIC_CALL_ENDED', handleMs });
-      }
+      // Honest degradation: only emit a real measured duration. A missed/capped end
+      // contributes nothing to the average (never an infinite or bogus value).
+      const emit = tAnswer && handleMs != null && handleMs >= 0 && handleMs <= HANDLE_CAP_MS;
+      ct('call ended', { handleMs, emitted: !!emit });
+      if (emit) safeSendMessage({ type: 'METRIC_CALL_ENDED', handleMs });
       resetCall();
     }
     function startHandle() {
       stopHandle();
-      // The call opens a NEW session tab; find the id absent at ring time, then
-      // fire when that tab detaches (session closed = handle-time end).
+      // The call opens a session tab (absent at ring); find the id that wasn't there at
+      // ring, then end the handle when it detaches (conversation closed = end of wrap-up).
+      // Duration = accept → close = handle time incl. wrap-up.
       const deadline = Date.now() + TAB_WAIT_MS;
       tabPoll = setInterval(() => {
         const newId = sessionTabIds().find((id) => !preTabIds.includes(id));
         if (newId) {
           clearInterval(tabPoll); tabPoll = null;
           trackedTab = document.getElementById(newId);
-          const container = document.querySelector(SESSION_LIST_SEL) || document.body;
+          ct('session tab opened', newId);
           if (trackedTab) {
             handleObserver = new MutationObserver(() => {
               if (trackedTab && !trackedTab.isConnected) endHandle(Date.now() - tAnswer);
             });
-            handleObserver.observe(container, { childList: true, subtree: true });
+            // Scope to the tablist (the tab's parent) so the observer isn't firing on every
+            // mutation of the whole page; the tab detaching from it triggers the callback.
+            handleObserver.observe(trackedTab.parentElement || document.body, {
+              childList: true, subtree: true,
+            });
           }
         } else if (Date.now() > deadline) {
           clearInterval(tabPoll); tabPoll = null;   // no tab found; rely on the cap
+          ct('no session tab within', TAB_WAIT_MS, 'ms — handle-end will rely on the 4h cap');
         }
       }, 500);
       handleCap = setTimeout(() => endHandle(null), HANDLE_CAP_MS);
@@ -606,20 +624,26 @@
     function resetCall() { setInCall(false); stopHandle(); ringKey = null; tRing = 0; tAnswer = 0; preTabIds = []; }
     // Ring notification gone (answered, declined, or timed out): re-arm ring dedupe so
     // the NEXT call is tracked even if it shares the same header text — WITHOUT tearing
-    // down any in-progress handle tracking (Phase B keeps running on the session tab).
+    // down any in-progress handle tracking (Phase B keeps watching the session tab).
     function clearRing() { ringKey = null; tRing = 0; }
     function onAccept() {
       if (!tRing || tAnswer) return;
       tAnswer = Date.now();
+      ct('answered', { ttaMs: tAnswer - tRing });
       safeSendMessage({ type: 'METRIC_CALL_ANSWERED', ttaMs: tAnswer - tRing });
       if (CALL_TRACKING_ENABLED) { setInCall(true); startHandle(); }
     }
-    function onDecline() { resetCall(); }
+    function onDecline() { ct('declined'); resetCall(); }
     function onRing(popup) {
+      // Already timing an answered call — don't let a second ring clobber its
+      // in-progress state (single-call tracker). Omnichannel holds the agent's capacity
+      // during a call, so a concurrent voice call shouldn't route here anyway.
+      if (tAnswer) return;
       const key = popup.querySelector('#popupNotificationHeaderText')?.textContent?.trim() || '__call__';
       if (ringKey === key) return;            // same call already tracked
       ringKey = key; tRing = Date.now(); tAnswer = 0;
       preTabIds = CALL_TRACKING_ENABLED ? sessionTabIds() : [];
+      ct('ring', { preTabs: preTabIds.length });
       safeSendMessage({ type: 'METRIC_CALL_RECEIVED' });
       const accept = document.querySelector('#acceptButton');
       const decline = document.querySelector('#declineButton');

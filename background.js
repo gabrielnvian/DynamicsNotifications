@@ -361,12 +361,18 @@ chrome.storage.onChanged.addListener((changes, area) => {
 function initMetrics() {
   chrome.alarms.create('metricsFlush', { periodInMinutes: 1 });
   metrics.ensureInstallId().catch(() => {});
+  // Clear any stale inCall persisted in storage.local from a previous session
+  // immediately — a call can't survive a browser/extension restart, and a stuck inCall
+  // would pin the operator to "on_call" on the live board until the 4h handle cap. Done
+  // directly here (not inside the idle callback) so it doesn't depend on that callback
+  // firing; the content script re-signals inCall on the next real answered call.
+  metrics.withLock(() => updateMetricsInput({ inCall: false })).catch(() => {});
   // chrome.idle.onStateChanged doesn't fire an initial event, so a 'locked'/'idle'
   // value persisted from last session would stick after a reboot and mis-report an
   // active operator as "away" with zero available time. Seed the real state now.
   chrome.idle.setDetectionInterval(60);
   chrome.idle.queryState(60, (state) => {
-    metrics.withLock(() => updateMetricsInput({ idle: state }));
+    metrics.withLock(() => updateMetricsInput({ idle: state })).catch(() => {});
   });
 }
 
@@ -459,7 +465,16 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 chrome.tabs.onRemoved.addListener(() => {
-  metrics.withLock(() => recomputeAvailability());
+  (async () => {
+    await metrics.withLock(() => recomputeAvailability());
+    // Instant offline: when the LAST Dynamics tab closes, tell the server right away
+    // (explicit "offline" beat) instead of waiting out the staleness window. Also clear
+    // any in-call state so a closed tab can't leave the operator pinned to on_call.
+    if (!(await hasDynamicsTab())) {
+      await metrics.withLock(() => updateMetricsInput({ inCall: false }));
+      await metrics.sendPresence('offline');
+    }
+  })();
 });
 
 chrome.tabs.onUpdated.addListener((tabId, info) => {

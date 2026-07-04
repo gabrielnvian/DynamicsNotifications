@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Dynamics Notifications",
-  "version": "1.7",
+  "version": "1.9",
   "description": "Incoming-call alerts for Dynamics 365 Omnichannel, plus call-handling metrics and availability reporting to your org's server.",
   "permissions": ["notifications", "storage", "offscreen", "idle", "alarms"],
   "host_permissions": ["*://*.dynamics.com/*", "https://dynops.tail068f9.ts.net/*"],

@@ -260,7 +260,8 @@ export async function flush() {
 // Fire-and-forget: liveness is disposable, so unlike events there is NO durable
 // queue. A dropped beat is corrected by the next one; a lapse in beats (tab closed,
 // machine locked/off) is what the server reads as "offline". keepalive lets a final
-// beat survive page unload. status is one of: available | on_call | away.
+// beat survive page unload. status is one of: available | on_call | away | offline
+// (offline is sent explicitly when the last Dynamics tab closes).
 export async function sendPresence(status) {
   const settings = await getSettings();
   const operator = sanitizeFirstName(settings.metricsFirstName);
