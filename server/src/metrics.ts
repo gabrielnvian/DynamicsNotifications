@@ -46,6 +46,7 @@ function toDaily(r: DailyAggRow): DailyPoint {
   return {
     day: r.day,
     available_seconds: r.available_seconds,
+    active_seconds: r.available_seconds + Math.round(r.sum_handle_ms / 1000),
     calls_received: r.calls_received,
     calls_answered: r.calls_answered,
     avg_time_to_answer_ms: avg(r.sum_tta_ms, r.cnt_tta),
@@ -58,6 +59,7 @@ function zeroDay(day: string): DailyPoint {
   return {
     day,
     available_seconds: 0,
+    active_seconds: 0,
     calls_received: 0,
     calls_answered: 0,
     avg_time_to_answer_ms: null,
@@ -154,7 +156,9 @@ export function summary(db: Database, from: string, to: string) {
   const team = {
     operator_count: rows.length,
     available_seconds: t.available_seconds,
-    active_seconds: t.available_seconds + Math.round(t.sum_handle_ms / 1000),
+    // Sum the per-operator values (each rounded once) — rounding the team's raw sum
+    // separately makes team ≠ Σ operators by ±1s per operator, visible in CSV sums.
+    active_seconds: operators.reduce((a, o) => a + o.active_seconds, 0),
     calls_received: t.calls_received,
     calls_answered: t.calls_answered,
     answer_rate: t.calls_received > 0 ? t.calls_answered / t.calls_received : null,
@@ -199,7 +203,7 @@ function slotExpr(slotMin: number): string {
 // that has activity (fills the slots between so the axis stays continuous), rather
 // than padding empty midnight-to-now slots.
 function slotPoints(db: Database, day: string, slotMin: number, name?: string): DailyPoint[] {
-  const where = name ? "AND o.first_name = ?" : "";
+  const where = name ? "AND o.first_name = ? COLLATE NOCASE" : "";
   const params = name ? [day, name] : [day];
   const rows = db
     .query(
@@ -228,6 +232,7 @@ function slotPoints(db: Database, day: string, slotMin: number, name?: string): 
       day,
       label: slotLabel(s, slotMin),
       available_seconds: r?.available_seconds ?? 0,
+      active_seconds: (r?.available_seconds ?? 0) + Math.round((r?.sum_handle_ms ?? 0) / 1000),
       calls_received: r?.calls_received ?? 0,
       calls_answered: r?.calls_answered ?? 0,
       avg_time_to_answer_ms: r && r.cnt_tta > 0 ? Math.round(r.sum_tta_ms / r.cnt_tta) : null,
@@ -253,7 +258,7 @@ export function daily(db: Database, from: string, to: string, name?: string, slo
           SUM(d.sum_handle_ms)     AS sum_handle_ms,
           SUM(d.cnt_handle)        AS cnt_handle
          FROM daily_aggregates d JOIN operators o ON o.id = d.operator_id
-         WHERE o.first_name = ? AND d.day BETWEEN ? AND ?
+         WHERE o.first_name = ? COLLATE NOCASE AND d.day BETWEEN ? AND ?
          GROUP BY d.day ORDER BY d.day`,
       )
       .all(name, from, to) as DailyAggRow[];
@@ -327,7 +332,7 @@ export function dailyFlat(
   to: string,
   name?: string,
 ): (DailyPoint & { first_name: string })[] {
-  const where = name ? "AND o.first_name = ?" : "";
+  const where = name ? "AND o.first_name = ? COLLATE NOCASE" : "";
   const params = name ? [from, to, name] : [from, to];
   const rows = db
     .query(
@@ -459,12 +464,12 @@ export function missedCallTimes(db: Database, day: string): Map<string, number[]
 export function deleteOperator(db: Database, firstName: string) {
   const tx = db.transaction(() => {
     const pres = db
-      .query("DELETE FROM presence WHERE first_name = ?")
+      .query("DELETE FROM presence WHERE first_name = ? COLLATE NOCASE")
       .run(firstName);
-    db.query("DELETE FROM presence_spans WHERE first_name = ?").run(firstName);
+    db.query("DELETE FROM presence_spans WHERE first_name = ? COLLATE NOCASE").run(firstName);
 
     const ops = db
-      .query("SELECT id FROM operators WHERE first_name = ?")
+      .query("SELECT id FROM operators WHERE first_name = ? COLLATE NOCASE")
       .all(firstName) as { id: number }[];
     for (const { id } of ops) {
       db.query("DELETE FROM raw_events WHERE operator_id = ?").run(id);

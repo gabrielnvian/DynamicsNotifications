@@ -43,12 +43,9 @@ export function toDailyRows(days: DayPoint[], answerTarget: number): DailyRow[] 
 	return days.map((d) => {
 		const not_answered = Math.max(0, d.calls_received - d.calls_answered);
 		const answer_rate = d.calls_received ? d.calls_answered / d.calls_received : null;
-		const active_seconds =
-			d.available_seconds + Math.round(((d.avg_handle_ms ?? 0) * d.handle_sample) / 1000);
 		return {
 			...d,
 			...dayMeta(d.day),
-			active_seconds,
 			not_answered,
 			answer_rate,
 			belowTarget: answer_rate != null && answer_rate < answerTarget

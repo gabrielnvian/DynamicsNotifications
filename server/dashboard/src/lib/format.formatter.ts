@@ -59,6 +59,14 @@ function ampm(h: number, m: number): string {
 	return m ? `${hh}:${String(m).padStart(2, '0')}${suffix}` : `${hh}${suffix}`;
 }
 
+/** Clock label "14:00" -> "2pm", "09:15" -> "9:15am" (axis ticks — one clock
+ *  convention everywhere). Non-clock labels (day names) pass through unchanged. */
+export function fmtClock(label: string): string {
+	const m = label.match(/^(\d{2}):(\d{2})$/);
+	if (!m) return label;
+	return ampm(Number(m[1]), Number(m[2]));
+}
+
 /** Slot label "07:00" (+step) -> "7am – 8am"; "13:15" (+15) -> "1:15pm – 1:30pm".
  *  The row covers the whole bucket, so a range reads less ambiguously than a bare
  *  start time. Non-slot labels pass through unchanged. */

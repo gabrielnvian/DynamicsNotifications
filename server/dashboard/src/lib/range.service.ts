@@ -23,15 +23,27 @@ function localYmd(d: Date): string {
 
 function realRange(key: RangeKey): Range {
 	const now = new Date();
-	const to = localYmd(now);
-	if (key === 'today') return { from: to, to };
+	if (key === 'today') {
+		const t = localYmd(now);
+		return { from: t, to: t };
+	}
+
+	// Multi-day presets end YESTERDAY. Including the in-progress day makes every
+	// chart end in a fake mid-day dip and biases each period-over-period delta
+	// (a ~6.4-day window compared against 7 complete days always reads "down").
+	const y = new Date(now);
+	y.setDate(y.getDate() - 1);
+	const to = localYmd(y);
+
 	if (key === 'last7') {
-		const f = new Date(now);
+		const f = new Date(y);
 		f.setDate(f.getDate() - 6);
 		return { from: localYmd(f), to };
 	}
-	if (key === 'month') return { from: localYmd(new Date(now.getFullYear(), now.getMonth(), 1)), to };
-	const f = new Date(now);
+	// Month-to-date through yesterday; on the 1st this is simply yesterday's month.
+	if (key === 'month') return { from: localYmd(new Date(y.getFullYear(), y.getMonth(), 1)), to };
+
+	const f = new Date(y);
 	f.setDate(f.getDate() - 29);
 	return { from: localYmd(f), to }; // last30
 }

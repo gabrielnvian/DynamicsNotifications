@@ -54,6 +54,9 @@ export interface DayPoint {
 	day: string; // YYYY-MM-DD
 	label?: string; // intraday hour label ("09:00") for single-day views; absent → use `day`
 	available_seconds: number;
+	// available + talk, computed server-side from exact handle sums — never reconstruct
+	// it client-side from avg_handle_ms × handle_sample (rounding drifts ±1s).
+	active_seconds: number;
 	calls_received: number;
 	calls_answered: number;
 	avg_time_to_answer_ms: number | null;
@@ -95,7 +98,6 @@ export interface OperatorRow extends OperatorSummary {
 }
 
 export interface DailyRow extends DayPoint {
-	active_seconds: number; // available + talk for the day (matches the summary KPI)
 	dayLabel: string; // e.g. "Jun 1"
 	weekday: string; // e.g. "Mon"
 	weekend: boolean;

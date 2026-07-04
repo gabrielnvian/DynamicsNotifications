@@ -110,7 +110,7 @@ interface SpanRow {
 }
 
 function spansOverlapping(db: Database, startMs: number, endMs: number, name?: string): SpanRow[] {
-  const where = name ? "AND first_name = ?" : "";
+  const where = name ? "AND first_name = ? COLLATE NOCASE" : "";
   const params = name ? [endMs, startMs, name] : [endMs, startMs];
   return db
     .query(

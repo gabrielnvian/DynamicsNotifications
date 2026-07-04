@@ -19,6 +19,7 @@
 	import TrendChart from '$lib/components/TrendChart.svelte';
 	import {
 		fmtAnswerRate,
+		fmtClock,
 		fmtHandle,
 		fmtHoursDecimal,
 		fmtInt,
@@ -106,7 +107,7 @@
 		summary ? toOperatorRows(summary.operators, prefs.answerTarget, onlineByName) : []
 	);
 	const days = $derived(metrics?.days ?? []);
-	const labels = $derived(days.map((d) => d.label ?? shortDay(d.day)));
+	const labels = $derived(days.map((d) => (d.label ? fmtClock(d.label) : shortDay(d.day))));
 	const dailyRows = $derived(toDailyRows(days, prefs.answerTarget));
 	const singleDayView = $derived(range.from === range.to);
 
@@ -120,11 +121,7 @@
 		days.map((d) => (d.avg_time_to_answer_ms == null ? null : d.avg_time_to_answer_ms / 1000))
 	);
 	const sHandleMin = $derived(days.map((d) => (d.avg_handle_ms == null ? null : d.avg_handle_ms / 60000)));
-	const sActiveH = $derived(
-		days.map(
-			(d) => (d.available_seconds + Math.round(((d.avg_handle_ms ?? 0) * d.handle_sample) / 1000)) / 3600
-		)
-	);
+	const sActiveH = $derived(days.map((d) => d.active_seconds / 3600));
 	const sOnlineH = $derived.by(() => {
 		if (!online) return [];
 		const byDay = new Map(online.days.map((d) => [d.day, d.online_seconds]));
@@ -132,6 +129,12 @@
 	});
 	const showOnlineBand = $derived(
 		!singleDayView && !!online && online.days.length > 0 && days.length > 1
+	);
+
+	// The boss question, pre-assembled (usability review: "one sentence at the top").
+	const targetPct = $derived(Math.round(prefs.answerTarget * 100));
+	const teamBelow = $derived(
+		!!team && team.answer_rate != null && team.answer_rate < prefs.answerTarget
 	);
 
 	// Period-over-period deltas vs the immediately-preceding equal-length window.
@@ -147,7 +150,7 @@
 	function deltaPp(cur: number | null, pv: number | null): Delta {
 		if (cur == null || pv == null) return { text: '—', dir: 0 };
 		const d = (cur - pv) * 100;
-		return { text: `${Math.abs(d).toFixed(1)}pp`, dir: d > 0.05 ? 1 : d < -0.05 ? -1 : 0 };
+		return { text: `${Math.abs(d).toFixed(1)} pts`, dir: d > 0.05 ? 1 : d < -0.05 ? -1 : 0 };
 	}
 
 	const showIntraday = $derived.by(() => {
@@ -172,7 +175,7 @@
 		<div class="tools">
 			<DateRangeControl presetKeys={['last7', 'last30', 'month']} defaultKey="last7" />
 			<a class="csv" href={summaryCsvUrl(range.from, range.to)} download title="Export operator summary CSV">
-				<Icon name="download" size={15} /> CSV
+				<Icon name="download" size={15} /> Export for Excel
 			</a>
 		</div>
 	</div>
@@ -194,6 +197,16 @@
 			onReset={resetRange}
 		/>
 	{:else if team}
+		{#if team.calls_received > 0 && team.answer_rate != null}
+			<div class="headline">
+				{prettyRangeShort(range)}: <b>{fmtInt(team.calls_answered)} of {fmtInt(team.calls_received)}</b>
+				calls answered (<b>{fmtAnswerRate(team.answer_rate)}</b>) —
+				<span class="verdict" class:bad={teamBelow}>
+					{teamBelow ? `below the ${targetPct}% target` : `meets the ${targetPct}% target`}
+				</span>
+			</div>
+		{/if}
+
 		<div class="kpirow">
 			<KpiCard
 				label="Not answered"
@@ -235,17 +248,27 @@
 			/>
 		</div>
 		{#if showDeltas}
-			<div class="kpinote num">Δ vs {prettyRangeShort(pw)}</div>
+			<div class="kpinote num">change vs {prettyRangeShort(pw)}</div>
 		{/if}
 
 		<div class="charts">
 			<BandChart answered={sAnswered} received={sReceived} {labels} subtitle={`per ${singleDayView ? 'hour' : 'day'} · ${prettyRangeShort(range)}`} />
-			<TrendChart title="Answer rate" subtitle={`percent per ${singleDayView ? 'hour' : 'day'}`} series={sAnswerPct} {labels} yMax={100} fmt={(v) => `${Math.round(v)}%`} />
+			<TrendChart
+				title="Answer rate"
+				subtitle={`percent per ${singleDayView ? 'hour' : 'day'}`}
+				series={sAnswerPct}
+				{labels}
+				yMax={100}
+				fmt={(v) => `${Math.round(v)}%`}
+				target={targetPct}
+				targetLabel={`${targetPct}% target`}
+				detail={(i) => `${sAnswered[i]} of ${sReceived[i]} answered`}
+			/>
 		</div>
 
 		{#if showOnlineBand}
 			<MeterColumns
-				subtitle={`person-hours per day · online = signed in with any status · ${prettyRangeShort(range)}`}
+				subtitle={`total hours across all operators, per day · online = signed in with any status · ${prettyRangeShort(range)}`}
 				{labels}
 				filled={sActiveH}
 				total={sOnlineH}
@@ -314,6 +337,20 @@
 	.csv:hover {
 		color: var(--text);
 		border-color: color-mix(in srgb, var(--brand) 45%, var(--card-border));
+	}
+	.headline {
+		font-size: 14.5px;
+		color: var(--text-soft);
+	}
+	.headline b {
+		color: var(--text);
+	}
+	.verdict {
+		font-weight: 600;
+		color: var(--live);
+	}
+	.verdict.bad {
+		color: var(--amber);
 	}
 	.kpirow {
 		display: grid;

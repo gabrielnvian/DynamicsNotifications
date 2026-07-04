@@ -13,6 +13,7 @@
 	import {
 		capitalizeName,
 		fmtAnswerRate,
+		fmtClock,
 		fmtHandle,
 		fmtHoursDecimal,
 		fmtHoursMinutes,
@@ -59,10 +60,11 @@
 			]);
 			if (my !== loadGen) return; // a newer operator/range started loading — drop this
 			setRoster(ops.operators.map((o) => o.first_name)); // shared colour identity (palette.service)
-			const ref = ops.operators.find((o) => o.first_name === id);
+			const lowId = id.toLowerCase();
+			const ref = ops.operators.find((o) => o.first_name.toLowerCase() === lowId);
 			metrics = m;
 			online = onl;
-			op = summary.operators.find((o) => o.first_name === id) ?? null;
+			op = summary.operators.find((o) => o.first_name.toLowerCase() === lowId) ?? null;
 			firstName = ref?.first_name ?? op?.first_name ?? null;
 			if (!ref && !op) status = 'notfound';
 			else status = m.days.length === 0 ? 'empty' : 'ok';
@@ -85,7 +87,7 @@
 
 	const name = $derived(firstName ? capitalizeName(firstName) : '');
 	const days = $derived(metrics?.days ?? []);
-	const labels = $derived(days.map((d) => d.label ?? shortDay(d.day)));
+	const labels = $derived(days.map((d) => (d.label ? fmtClock(d.label) : shortDay(d.day))));
 	// Single-day ranges return HOURLY rows (label set) — day-based subs don't apply.
 	const hourly = $derived(days.length > 0 && days[0].label != null);
 	// Days actually worked. The day series is densified (zero-filled) over the whole
@@ -98,14 +100,7 @@
 	const targetPct = $derived(Math.round(prefs.answerTarget * 100));
 	const dailyRows = $derived(toDailyRows(days, prefs.answerTarget));
 
-	// Active hours per day = Available + talk (sum_handle ≈ avg_handle × sample), matching
-	// the server's active_seconds so the sparkline/trend agree with the summary KPI.
-	const sActiveH = $derived(
-		days.map(
-			(d) =>
-				(d.available_seconds + Math.round(((d.avg_handle_ms ?? 0) * d.handle_sample) / 1000)) / 3600
-		)
-	);
+	const sActiveH = $derived(days.map((d) => d.active_seconds / 3600));
 	const sReceived = $derived(days.map((d) => d.calls_received));
 	const sAnswered = $derived(days.map((d) => d.calls_answered));
 	const sAnswerPct = $derived(
@@ -166,7 +161,7 @@
 				<KpiCard label="Calls answered" value={fmtInt(op.calls_answered)} sub={`${fmtInt(Math.max(0, op.calls_received - op.calls_answered))} not answered`} series={sAnswered} />
 				<KpiCard label="Answer rate" value={fmtAnswerRate(op.answer_rate)} sub={`${fmtInt(op.calls_answered)} / ${fmtInt(op.calls_received)}`} series={sAnswerPct} yMax={100} />
 				<KpiCard label="Avg time-to-answer" value={fmtTimeToAnswer(op.avg_time_to_answer_ms)} sub="ring → pickup" series={sTtaSec} />
-				<KpiCard label="Avg handle time" value={fmtHandle(op.avg_handle_ms)} sub={`incl. wrap-up · n=${fmtInt(op.handle_sample)}`} series={sHandleMin} />
+				<KpiCard label="Avg handle time" value={fmtHandle(op.avg_handle_ms)} sub={`includes wrap-up · avg of ${fmtInt(op.handle_sample)} calls`} series={sHandleMin} />
 			</div>
 
 			<!-- Full-width card → wider viewBox, or the SVG upscale makes the axis text huge. -->
@@ -182,7 +177,17 @@
 			{/if}
 
 			<div class="smallrow">
-				<TrendChart title="Answer rate" subtitle="% of received answered" series={sAnswerPct} {labels} yMax={100} fmt={(v) => `${Math.round(v)}%`} />
+				<TrendChart
+					title="Answer rate"
+					subtitle="% of received answered"
+					series={sAnswerPct}
+					{labels}
+					yMax={100}
+					fmt={(v) => `${Math.round(v)}%`}
+					target={targetPct}
+					targetLabel={`${targetPct}% target`}
+					detail={(i) => `${sAnswered[i]} of ${sReceived[i]} answered`}
+				/>
 				<TrendChart title="Avg time-to-answer" subtitle="seconds, ring → pickup" series={sTtaSec} {labels} fmt={(v) => `${Math.round(v)}s`} />
 				<TrendChart title="Avg handle time" subtitle="minutes" series={sHandleMin} {labels} fmt={(v) => `${Math.round(v)}m`} footnote="Incl. wrap-up. Averaged over measured calls; sample varies by day." />
 				<TrendChart title="Active hours" subtitle="hours/day (Available + talk)" series={sActiveH} {labels} fmt={(v) => `${Math.round(v)}h`} />

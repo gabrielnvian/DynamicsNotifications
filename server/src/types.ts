@@ -47,6 +47,9 @@ export interface DailyPoint {
   day: string;
   label?: string; // intraday hour label ("09:00") for single-day views; absent → use `day`
   available_seconds: number;
+  // available + talk, computed server-side from the exact handle sums — clients must
+  // NOT reconstruct it from avg_handle_ms × handle_sample (rounding drifts ±1s).
+  active_seconds: number;
   calls_received: number;
   calls_answered: number;
   avg_time_to_answer_ms: number | null;

@@ -12,19 +12,21 @@ export interface XLabel {
 	anchor: 'start' | 'middle' | 'end';
 }
 
-function niceMax(v: number): number {
-	if (v <= 0) return 1;
-	const pw = Math.pow(10, Math.floor(Math.log10(v)));
-	const n = v / pw;
-	const steps = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10];
-	let m = 10;
-	for (const s of steps) {
-		if (n <= s) {
-			m = s;
-			break;
+// Y-axis scale: pick an INTEGER tick step ({1,2,2.5,5}×10ⁿ, 2.5 only once it's the
+// integer 25/250/…) and snap max up to a whole number of steps. Dividing an
+// arbitrary "nice max" into a fixed 4 and rounding the labels produced axes like
+// "0, 1, 2, 2, 3" (duplicate label, uneven spacing) — every tick value must be
+// exactly representable.
+function tickScale(rawMax: number): { max: number; ticks: number } {
+	const v = Math.max(1, rawMax);
+	for (let pw = 1; ; pw *= 10) {
+		for (const m of [1, 2, 2.5, 5]) {
+			const step = m * pw;
+			if (!Number.isInteger(step)) continue;
+			const ticks = Math.ceil(v / step);
+			if (ticks <= 5) return { max: step * ticks, ticks };
 		}
 	}
-	return m * pw;
 }
 
 function linePath(pts: Array<[number, number]>): string {
@@ -50,7 +52,11 @@ interface Axis {
 	left: number; // plot-area left edge (for hover → nearest-index mapping)
 	right: number; // plot-area right edge
 }
-function makeAxis(max: number, o: AxisOpts): Axis {
+function makeAxis(rawMax: number, o: AxisOpts): Axis {
+	// An explicit yMax (e.g. 100 for percentages) keeps 4 clean divisions; otherwise
+	// the tick scale picks step and count so every label is exact.
+	const { max, ticks } = o.yMax != null ? { max: o.yMax, ticks: 4 } : tickScale(rawMax);
+
 	const m = o.margin ?? { t: 10, r: 16, b: 22, l: 42 };
 	const n = o.labels.length;
 	const iw = o.W - m.l - m.r,
@@ -59,9 +65,8 @@ function makeAxis(max: number, o: AxisOpts): Axis {
 	const Y = (v: number) => m.t + ih - (Math.max(0, Math.min(v, max)) / max) * ih;
 
 	const gridlines: GridLine[] = [];
-	const T = 4;
-	for (let t = 0; t <= T; t++) {
-		const val = (max * t) / T;
+	for (let t = 0; t <= ticks; t++) {
+		const val = (max * t) / ticks;
 		gridlines.push({ y: Y(val), label: o.fmt ? o.fmt(val) : String(Math.round(val)) });
 	}
 
@@ -157,6 +162,7 @@ export interface LineChart {
 	dots: Array<{ x: number; y: number }>;
 	last: { x: number; y: number } | null;
 	points: Array<HoverPoint & { y: number | null; value: number | null }>;
+	yOf: (v: number) => number; // value → y position (reference/target lines)
 	plot: Plot;
 }
 /** Single line, optional area fill; null points create gaps (missing data ≠ 0). */
@@ -165,8 +171,7 @@ export function buildLineChart(
 	opts: AxisOpts & { area?: boolean }
 ): LineChart {
 	const nonNull = series.filter((v): v is number => v != null);
-	const max = opts.yMax != null ? opts.yMax : niceMax(Math.max(1, ...nonNull));
-	const ax = makeAxis(max, opts);
+	const ax = makeAxis(Math.max(1, ...nonNull), opts);
 	const pts = series.map((v, i) => (v == null ? null : ([ax.X(i), ax.Y(v)] as [number, number])));
 	const { line, area, bridges, dots } = gappedPaths(pts, ax.baseline, !!opts.area);
 
@@ -185,6 +190,7 @@ export function buildLineChart(
 			label: opts.labels[i] ?? '',
 			value: v
 		})),
+		yOf: ax.Y,
 		plot: { left: ax.left, right: ax.right, viewW: opts.W }
 	};
 }
@@ -212,8 +218,12 @@ export function buildStackedCallsChart(
 	opts: { W: number; H: number }
 ): CallsChart {
 	const n = answered.length;
-	const max = niceMax(Math.max(1, ...received));
-	const ax = makeAxis(max, { W: opts.W, H: opts.H, labels, fmt: (v) => String(Math.round(v)) });
+	const ax = makeAxis(Math.max(1, ...received), {
+		W: opts.W,
+		H: opts.H,
+		labels,
+		fmt: (v) => String(Math.round(v))
+	});
 	const ansPts = answered.map((v, i) => [ax.X(i), ax.Y(v)] as [number, number]);
 	const recPts = received.map((v, i) => [ax.X(i), ax.Y(v)] as [number, number]);
 	const ansLp = linePath(ansPts),

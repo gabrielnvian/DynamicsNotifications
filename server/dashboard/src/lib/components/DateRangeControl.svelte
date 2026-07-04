@@ -7,11 +7,12 @@
 	import { prettyRangeShort, rangeKeyFromUrl, resolveRange } from '$lib/range.service';
 	import Icon from './Icon.svelte';
 
+	// Words, not analyst shorthand — "7D"/"MTD" meant nothing in usability review.
 	const ALL_PRESETS: { key: RangeKey; label: string }[] = [
-		{ key: 'today', label: '1D' },
-		{ key: 'last7', label: '7D' },
-		{ key: 'last30', label: '30D' },
-		{ key: 'month', label: 'MTD' }
+		{ key: 'today', label: 'Today' },
+		{ key: 'last7', label: '7 days' },
+		{ key: 'last30', label: '30 days' },
+		{ key: 'month', label: 'Month' }
 	];
 
 	// Pages scope the presets (Trends has no 1D — Today is its own page) and set the

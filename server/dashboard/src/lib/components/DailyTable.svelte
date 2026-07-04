@@ -27,10 +27,10 @@
 		{ key: 'active_seconds', label: 'Active', align: 'r' },
 		{ key: 'calls_received', label: 'Received', align: 'r' },
 		{ key: 'calls_answered', label: 'Answered', align: 'r' },
-		{ key: 'not_answered', label: 'Not answ.', align: 'r' },
+		{ key: 'not_answered', label: 'Not answered', align: 'r' },
 		{ key: 'answer_rate', label: 'Answer rate', align: 'r' },
-		{ key: 'avg_time_to_answer_ms', label: 'Avg TTA', align: 'r' },
-		{ key: 'avg_handle_ms', label: 'Avg handle', align: 'r' }
+		{ key: 'avg_time_to_answer_ms', label: 'Avg time to answer', align: 'r' },
+		{ key: 'avg_handle_ms', label: 'Avg handle time', align: 'r' }
 	];
 
 	let sortKey = $state<DailyKey>('day');
@@ -122,7 +122,7 @@
 						<td class="r soft tabular">{fmtTimeToAnswer(r.avg_time_to_answer_ms)}</td>
 						<td class="r soft tabular">
 							{fmtHandle(r.avg_handle_ms)}
-							{#if r.avg_handle_ms != null}<span class="n">n={fmtInt(r.handle_sample)}</span>{/if}
+							{#if r.avg_handle_ms != null}<span class="n">avg of {fmtInt(r.handle_sample)} calls</span>{/if}
 						</td>
 					</tr>
 				{/each}

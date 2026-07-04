@@ -20,6 +20,7 @@
 	import TrendChart from '$lib/components/TrendChart.svelte';
 	import {
 		fmtAnswerRate,
+		fmtClock,
 		fmtHandle,
 		fmtHoursDecimal,
 		fmtInt,
@@ -124,7 +125,7 @@
 
 	const team = $derived(summary?.team ?? null);
 	const days = $derived(metrics?.days ?? []);
-	const labels = $derived(days.map((d) => d.label ?? shortDay(d.day)));
+	const labels = $derived(days.map((d) => (d.label ? fmtClock(d.label) : shortDay(d.day))));
 	const dailyRows = $derived(toDailyRows(days, prefs.answerTarget));
 	const targetPct = $derived(Math.round(prefs.answerTarget * 100));
 	const dayLabel = $derived(isToday ? 'today' : shortDay(day));
@@ -139,11 +140,7 @@
 		days.map((d) => (d.avg_time_to_answer_ms == null ? null : d.avg_time_to_answer_ms / 1000))
 	);
 	const sHandleMin = $derived(days.map((d) => (d.avg_handle_ms == null ? null : d.avg_handle_ms / 60000)));
-	const sActiveH = $derived(
-		days.map(
-			(d) => (d.available_seconds + Math.round(((d.avg_handle_ms ?? 0) * d.handle_sample) / 1000)) / 3600
-		)
-	);
+	const sActiveH = $derived(days.map((d) => d.active_seconds / 3600));
 
 	// On shift = operators currently taking calls (available / on a call), of those reporting.
 	const onShift = $derived(
@@ -159,6 +156,16 @@
 	const showTimeline = $derived(
 		!!timeline && timeline.operators.length > 0 && timeline.day === day
 	);
+
+	// Hourly buckets exclude late-synced batches (they can't be placed at an honest
+	// hour); the KPI totals include them. When the two actually differ, say so —
+	// otherwise the same screen shows two "totals" that disagree with no explanation.
+	const lateSync = $derived.by(() => {
+		if (!team || days.length === 0) return false;
+		const recv = days.reduce((a, d) => a + d.calls_received, 0);
+		const ans = days.reduce((a, d) => a + d.calls_answered, 0);
+		return recv !== team.calls_received || ans !== team.calls_answered;
+	});
 </script>
 
 <main class="wrap">
@@ -226,8 +233,24 @@
 
 		<div class="charts">
 			<BandChart answered={sAnswered} received={sReceived} {labels} subtitle={`per hour · ${dayLabel}`} />
-			<TrendChart title="Answer rate" subtitle="percent per hour" series={sAnswerPct} {labels} yMax={100} fmt={(v) => `${Math.round(v)}%`} />
+			<TrendChart
+				title="Answer rate"
+				subtitle="percent per hour"
+				series={sAnswerPct}
+				{labels}
+				yMax={100}
+				fmt={(v) => `${Math.round(v)}%`}
+				target={targetPct}
+				targetLabel={`${targetPct}% target`}
+				detail={(i) => `${sAnswered[i]} of ${sReceived[i]} answered`}
+			/>
 		</div>
+		{#if lateSync}
+			<div class="latenote">
+				Some events synced late and can't be placed at an exact hour — the totals above
+				include them; the hourly charts don't.
+			</div>
+		{/if}
 
 		{#if showIntraday && intraday}
 			<OperatorHeatmap
@@ -288,6 +311,11 @@
 		display: grid;
 		grid-template-columns: 1.55fr 1fr;
 		gap: 16px;
+	}
+	.latenote {
+		margin-top: -12px;
+		font-size: 11px;
+		color: var(--faint);
 	}
 	@media (max-width: 1000px) {
 		.hero-row,

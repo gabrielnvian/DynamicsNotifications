@@ -63,7 +63,18 @@
 				rl: i === 0 || s.start_ms - arr[i - 1].end_ms > TOUCH_MS ? 3 : 0,
 				rr: i === arr.length - 1 || arr[i + 1].start_ms - s.end_ms > TOUCH_MS ? 3 : 0
 			})),
-			missed: (o.missed_ms ?? []).filter((t) => t >= view.start && t <= view.end)
+			missed: (o.missed_ms ?? []).filter((t) => t >= view.start && t <= view.end),
+			// Disconnected time WITHIN the shift (first..last signal minus online) — the
+			// per-person number "was anyone away a lot?" needs. Away spans count as
+			// online; this is purely the silent gaps.
+			offSeconds:
+				o.spans.length === 0
+					? 0
+					: Math.max(
+							0,
+							Math.round((o.spans[o.spans.length - 1].end_ms - o.spans[0].start_ms) / 1000) -
+								o.online_seconds
+						)
 		}))
 	);
 
@@ -209,7 +220,7 @@
 								<span class="trow"><span class="tn">{hovered.span.label}</span><span class="tv num">{hovered.span.range}</span></span>
 								<span class="trow muted"><span class="tn">duration</span><span class="tv num">{hovered.span.dur}</span></span>
 							{:else}
-								<span class="trow"><span class="tn">No signal</span></span>
+								<span class="trow"><span class="tn">Not connected — closed, locked, or signed off</span></span>
 							{/if}
 							{#if hovered.missedNear}
 								<span class="trow missrow"
@@ -219,7 +230,10 @@
 						</span>
 					{/if}
 				</span>
-				<span class="total num">{fmtHoursMinutes(lane.online_seconds)}</span>
+				<span class="total num">
+					{fmtHoursMinutes(lane.online_seconds)}
+					{#if lane.offSeconds >= 60}<small>off {fmtHoursMinutes(lane.offSeconds)}</small>{/if}
+				</span>
 			</div>
 		{/each}
 
@@ -384,10 +398,20 @@
 		pointer-events: none;
 	}
 	.total {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
 		text-align: right;
 		font-size: 12.5px;
 		font-weight: 600;
 		color: var(--text);
+	}
+	/* Disconnected time during the shift — informative, not an accusation: faint. */
+	.total small {
+		font-size: 10px;
+		font-weight: 500;
+		color: var(--faint);
+		white-space: nowrap;
 	}
 	.xrow {
 		display: grid;

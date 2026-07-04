@@ -83,7 +83,7 @@
 				<path d={chart.answeredArea} fill="url(#{gid})" />
 			{/if}
 			{#if chart.notAnsweredBand}
-				<path d={chart.notAnsweredBand} fill="var(--chart-band)" fill-opacity="0.5" />
+				<path d={chart.notAnsweredBand} fill="var(--chart-band)" />
 			{/if}
 			{#if chart.answeredLine}
 				<path
@@ -117,7 +117,7 @@
 				<span class="tl num">{hover.label}</span>
 				<span class="row"><span class="k">Answered</span><span class="v num">{hover.answered}</span></span>
 				<span class="row"><span class="k">Received</span><span class="v num">{hover.received}</span></span>
-				<span class="row"><span class="k muted">Not answ.</span><span class="v num muted">{hover.notAnswered}</span></span>
+				<span class="row"><span class="k muted">Not answered</span><span class="v num muted">{hover.notAnswered}</span></span>
 			</div>
 		{/if}
 	</div>

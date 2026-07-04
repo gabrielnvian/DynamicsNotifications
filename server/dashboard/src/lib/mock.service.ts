@@ -115,6 +115,7 @@ function build() {
 				return {
 					day: dt.key,
 					available_seconds: 0,
+					active_seconds: 0,
 					calls_received: 0,
 					calls_answered: 0,
 					avg_time_to_answer_ms: null,
@@ -133,6 +134,7 @@ function build() {
 			return {
 				day: dt.key,
 				available_seconds: available,
+				active_seconds: available + Math.round(((handle ?? 0) * sample) / 1000),
 				calls_received: received,
 				calls_answered: answered,
 				avg_time_to_answer_ms: tta,
@@ -178,6 +180,7 @@ function mergedOperators(): MergedOp[] {
 
 interface Agg {
 	available_seconds: number;
+	active_seconds: number;
 	calls_received: number;
 	calls_answered: number;
 	answer_rate: number | null;
@@ -188,6 +191,7 @@ interface Agg {
 
 function aggregate(days: DayPoint[]): Agg {
 	let avail = 0,
+		act = 0,
 		recv = 0,
 		ans = 0,
 		tN = 0,
@@ -197,6 +201,7 @@ function aggregate(days: DayPoint[]): Agg {
 		samp = 0;
 	for (const d of days) {
 		avail += d.available_seconds;
+		act += d.active_seconds;
 		recv += d.calls_received;
 		ans += d.calls_answered;
 		samp += d.handle_sample;
@@ -211,6 +216,7 @@ function aggregate(days: DayPoint[]): Agg {
 	}
 	return {
 		available_seconds: avail,
+		active_seconds: act,
 		calls_received: recv,
 		calls_answered: ans,
 		answer_rate: recv ? ans / recv : null,
@@ -222,6 +228,7 @@ function aggregate(days: DayPoint[]): Agg {
 function stripDay(a: Agg): Omit<DayPoint, 'day'> {
 	return {
 		available_seconds: a.available_seconds,
+		active_seconds: a.active_seconds,
 		calls_received: a.calls_received,
 		calls_answered: a.calls_answered,
 		avg_time_to_answer_ms: a.avg_time_to_answer_ms,
@@ -244,17 +251,14 @@ export function mockOperators(): OperatorsResponse {
 	};
 }
 
-function activeSec(a: Agg): number {
-	return a.available_seconds + Math.round(((a.avg_handle_ms ?? 0) * a.handle_sample) / 1000);
-}
 export function mockSummary(from: string, to: string): SummaryResponse {
 	const ops = mergedOperators().map((o) => {
 		const a = aggregate(o.days.filter((d) => inRange(d.day, from, to)));
-		return { first_name: o.first, ...a, active_seconds: activeSec(a) };
+		return { first_name: o.first, ...a };
 	});
 	const { teamDays } = build();
 	const teamAgg = aggregate(teamDays.filter((d) => inRange(d.day, from, to)));
-	const team: TeamSummary = { operator_count: ops.length, ...teamAgg, active_seconds: activeSec(teamAgg) };
+	const team: TeamSummary = { operator_count: ops.length, ...teamAgg };
 	return { range: { from, to }, operators: ops, team };
 }
 

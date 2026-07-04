@@ -10,7 +10,10 @@
 		series,
 		labels,
 		fmt,
-		yMax
+		yMax,
+		target,
+		targetLabel = '',
+		detail
 	}: {
 		title: string;
 		subtitle?: string;
@@ -19,6 +22,9 @@
 		labels: string[];
 		fmt?: (v: number) => string;
 		yMax?: number;
+		target?: number; // reference line in series units (e.g. the 85% answer target)
+		targetLabel?: string;
+		detail?: (i: number) => string; // secondary tooltip line, e.g. "9 of 17 answered"
 	} = $props();
 
 	const W = 384;
@@ -71,6 +77,18 @@
 			{#each chart.xLabels as xl}
 				<text x={xl.x} y={H - 6} text-anchor={xl.anchor} class="axis">{xl.label}</text>
 			{/each}
+			{#if target != null}
+				<line
+					class="target"
+					x1={chart.plot.left}
+					x2={chart.plot.right}
+					y1={chart.yOf(target)}
+					y2={chart.yOf(target)}
+				/>
+				{#if targetLabel}
+					<text class="tgt" x={chart.plot.right} y={chart.yOf(target) - 4} text-anchor="end">{targetLabel}</text>
+				{/if}
+			{/if}
 			{#if chart.areaPath}<path d={chart.areaPath} fill="url(#{gid})" />{/if}
 			{#if chart.bridgePath}
 				<path class="bridge" d={chart.bridgePath} fill="none" stroke="var(--chart-line)" stroke-width="1.5" />
@@ -96,6 +114,9 @@
 			<div class="tip" style="left:{tipPct}%;transform:translateX({tipShift})">
 				<span class="tl num">{hover.label}</span>
 				<span class="tv num">{hover.value == null ? '—' : fmt ? fmt(hover.value) : hover.value}</span>
+				{#if detail && hoverIdx != null && hover.value != null}
+					<span class="td num">{detail(hoverIdx)}</span>
+				{/if}
 			</div>
 		{/if}
 	</div>
@@ -146,6 +167,20 @@
 	.bridge {
 		stroke-dasharray: 3 4;
 		opacity: 0.4;
+	}
+	/* The goal line wears the judgment colour (amber = the below-target flag). */
+	.target {
+		stroke: var(--amber);
+		stroke-width: 1.5;
+		opacity: 0.75;
+	}
+	.tgt {
+		font-size: 9px;
+		fill: var(--amber);
+	}
+	.td {
+		font-size: 10.5px;
+		color: var(--muted);
 	}
 	.hoverdot {
 		fill: var(--chart-line);

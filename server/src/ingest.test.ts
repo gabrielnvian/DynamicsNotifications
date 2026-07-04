@@ -91,6 +91,7 @@ test("fold, idempotency, and exact averages", () => {
   expect(d.days[1]).toEqual({
     day: "2026-06-02",
     available_seconds: 0,
+    active_seconds: 0,
     calls_received: 0,
     calls_answered: 0,
     avg_time_to_answer_ms: null,

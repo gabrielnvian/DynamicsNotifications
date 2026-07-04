@@ -7,7 +7,7 @@
 	// ONE sequential ramp (counts are tiny integers → discrete bins 0/1/2/3/4+).
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
-	import { capitalizeName, fmtInt, fmtSlotRange } from '$lib/format.formatter';
+	import { capitalizeName, fmtClock, fmtInt, fmtSlotRange } from '$lib/format.formatter';
 
 	let {
 		title = 'Calls answered by operator',
@@ -28,7 +28,11 @@
 			.map((o) => ({
 				...o,
 				total: o.answered.reduce((s, v) => s + v, 0),
-				totalReceived: o.received.reduce((s, v) => s + v, 0)
+				totalReceived: o.received.reduce((s, v) => s + v, 0),
+				missedTotal: Math.max(
+					0,
+					o.received.reduce((s, v) => s + v, 0) - o.answered.reduce((s, v) => s + v, 0)
+				)
 			}))
 			.sort((a, b) => b.total - a.total || a.first_name.localeCompare(b.first_name))
 	);
@@ -37,7 +41,9 @@
 	// both themes (more calls = more hue). 0 stays the neutral track — hue means data.
 	// Single-day slots hold tiny integers → exact bins 0/1/2/3/4+. Multi-day sums can
 	// reach dozens, so past 4 the four hue steps scale linearly to the observed max.
-	const BIN_PCT = [0, 30, 55, 78, 100];
+	// Bin 1 starts at 45% hue — most real cells hold exactly one call, and a softer
+	// first step read as "idle" next to the empty track.
+	const BIN_PCT = [0, 45, 65, 82, 100];
 	const maxV = $derived(Math.max(1, ...operators.flatMap((o) => o.answered)));
 	const exactBins = $derived(maxV <= 4);
 	function binOf(v: number): number {
@@ -52,11 +58,23 @@
 	function cellBg(v: number): string {
 		return binBg(binOf(v));
 	}
+	// Legend bounds derive from the SAME boundary math as binOf — bin k covers the
+	// integers in (maxV(k−1)/4, maxV·k/4] — so the key never mislabels a colour.
 	const legend = $derived.by(() => {
 		if (exactBins) return ['0', '1', '2', '3', '4+'];
-		const q = (k: number) => Math.ceil((maxV * k) / 4);
-		return ['0', `≤${q(1)}`, `≤${q(2)}`, `≤${q(3)}`, `≤${maxV}`];
+		const bounds = (k: number) => {
+			const lo = Math.floor(((k - 1) * maxV) / 4) + 1;
+			const hi = Math.floor((k * maxV) / 4);
+			return lo >= hi ? `${hi}` : `${lo}–${hi}`;
+		};
+		return ['0', bounds(1), bounds(2), bounds(3), bounds(4)];
 	});
+
+	// A slot where the phone rang and NOTHING was answered is the actionable failure —
+	// it must not render identically to "off shift". Amber ring marks it.
+	function dropped(r: (typeof rows)[number], ci: number): boolean {
+		return (r.received[ci] ?? 0) > 0 && (r.answered[ci] ?? 0) === 0;
+	}
 
 	// Column time ticks: every k-th slot plus the last (same rule as the line charts).
 	const tickStep = $derived(Math.max(1, Math.ceil(labels.length / 8)));
@@ -106,13 +124,14 @@
 			{#if subtitle}<div class="subtitle">{subtitle}</div>{/if}
 		</div>
 		<div class="scale" aria-label="Calls per slot, fewest to most">
-			<span class="slbl">calls / slot</span>
+			<span class="slbl">calls / {slotMinutes} min</span>
 			{#each legend as lab, bin}
 				<span class="skey">
 					<span class="swatch" style="background:{binBg(bin)}"></span>
 					<span class="snum num">{lab}</span>
 				</span>
 			{/each}
+			<span class="skey"><span class="swatch drop"></span><span class="snum">rang, none answered</span></span>
 		</div>
 	</div>
 
@@ -139,6 +158,7 @@
 						<span
 							class="cell"
 							class:hot={hover?.row === ri && hover?.col === ci}
+							class:drop={dropped(r, ci)}
 							style="background:{cellBg(v)}"
 						></span>
 					{/each}
@@ -160,6 +180,7 @@
 					{/if}
 				</span>
 				<span class="total num">{fmtInt(r.total)}</span>
+				<span class="missed num" class:none={r.missedTotal === 0}>{fmtInt(r.missedTotal)}</span>
 			</div>
 		{/each}
 
@@ -171,11 +192,12 @@
 						class="xtick num"
 						style="grid-column:{t.i + 1}"
 						class:first={t.i === 0}
-						class:last={t.i === labels.length - 1}>{t.label}</span
+						class:last={t.i === labels.length - 1}>{fmtClock(t.label)}</span
 					>
 				{/each}
 			</span>
 			<span class="total-h">answered</span>
+			<span class="total-h">missed</span>
 		</div>
 	</div>
 </div>
@@ -237,7 +259,7 @@
 	}
 	.row {
 		display: grid;
-		grid-template-columns: 96px 1fr 64px;
+		grid-template-columns: 96px 1fr 64px 52px;
 		align-items: center;
 		gap: 10px;
 		padding: 1px 0;
@@ -275,15 +297,32 @@
 		outline: 2px solid var(--text);
 		outline-offset: -1px;
 	}
+	.cell.drop,
+	.swatch.drop {
+		box-shadow: inset 0 0 0 2px var(--amber);
+	}
+	.swatch.drop {
+		background: var(--track);
+	}
 	.total {
 		text-align: right;
 		font-size: 13px;
 		font-weight: 600;
 		color: var(--text);
 	}
+	.missed {
+		text-align: right;
+		font-size: 13px;
+		font-weight: 600;
+		color: var(--danger);
+	}
+	.missed.none {
+		color: var(--faint);
+		font-weight: 500;
+	}
 	.xrow {
 		display: grid;
-		grid-template-columns: 96px 1fr 64px;
+		grid-template-columns: 96px 1fr 64px 52px;
 		gap: 10px;
 		margin-top: 3px;
 	}

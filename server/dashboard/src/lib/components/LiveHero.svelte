@@ -2,7 +2,9 @@
 	import { uid } from '$lib/uid';
 
 	// The console "pulse" card: big monospace count of calls received for the current
-	// scope, answered/rate, and a live area chart of the received series in --live.
+	// scope, answered/rate, and a live area chart of the received series. The chart
+	// wears the neutral series blue — received calls are DEMAND, and --live green
+	// means good/available everywhere else; only the "answered" line keeps it.
 	let {
 		title,
 		dateLabel,
@@ -83,19 +85,19 @@
 		>
 			<defs>
 				<linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-					<stop offset="0%" stop-color="var(--live)" stop-opacity="0.32" />
-					<stop offset="100%" stop-color="var(--live)" stop-opacity="0" />
+					<stop offset="0%" stop-color="var(--chart-line)" stop-opacity="0.32" />
+					<stop offset="100%" stop-color="var(--chart-line)" stop-opacity="0" />
 				</linearGradient>
 			</defs>
 			{#if geo}
 				<path d={geo.area} fill="url(#{gid})" />
-				<path class="ln" d={geo.line} fill="none" stroke="var(--live)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+				<path class="ln" d={geo.line} fill="none" stroke="var(--chart-line)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
 				{#if hover}
 					<line class="crosshair" x1={hover.x} x2={hover.x} y1={TOP} y2={BOTTOM} />
 					<circle class="hoverdot" cx={hover.x} cy={hover.y} r="4" />
 				{:else}
-					<circle class="pulse" cx={geo.last[0]} cy={geo.last[1]} r="5.5" fill="var(--live)" />
-					<circle cx={geo.last[0]} cy={geo.last[1]} r="2.8" fill="var(--live)" />
+					<circle class="pulse" cx={geo.last[0]} cy={geo.last[1]} r="5.5" fill="var(--chart-line)" />
+					<circle cx={geo.last[0]} cy={geo.last[1]} r="2.8" fill="var(--chart-line)" />
 				{/if}
 			{/if}
 		</svg>
@@ -171,7 +173,7 @@
 		margin-top: 14px;
 	}
 	.ln {
-		filter: drop-shadow(0 2px 6px color-mix(in srgb, var(--live) 45%, transparent));
+		filter: drop-shadow(0 2px 6px color-mix(in srgb, var(--chart-line) 45%, transparent));
 	}
 	.pulse {
 		opacity: 0.22;
@@ -180,14 +182,14 @@
 		animation: v2pulse 1.7s ease-in-out infinite;
 	}
 	.crosshair {
-		stroke: var(--live);
+		stroke: var(--chart-line);
 		stroke-width: 1;
 		stroke-dasharray: 3 3;
 		opacity: 0.6;
 		pointer-events: none;
 	}
 	.hoverdot {
-		fill: var(--live);
+		fill: var(--chart-line);
 		stroke: var(--card);
 		stroke-width: 2;
 		pointer-events: none;
