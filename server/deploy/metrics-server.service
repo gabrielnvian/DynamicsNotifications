@@ -1,0 +1,42 @@
+# systemd unit for the metrics server (runs the bundled build, NOT source).
+# Install: untar dist/metrics-server.tgz into /opt/metrics-server (gives server.js
+# + dashboard/build + this unit), put `bun` on PATH (/usr/local/bin/bun), create a
+# `metrics` user, add /opt/metrics-server/.env (config + dashboard creds), then:
+#   sudo cp /opt/metrics-server/metrics-server.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now metrics-server
+# Update: overwrite server.js + dashboard/build from a fresh tarball, keep .env +
+# data/, then `sudo systemctl restart metrics-server`.
+#
+# SQLite is single-writer: run exactly ONE instance (this unit does).
+
+[Unit]
+Description=Dynamics operator metrics server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=metrics
+Group=metrics
+WorkingDirectory=/opt/metrics-server
+# Operator/business timezone — drives SQLite strftime('…','localtime') hour bucketing
+# and Date local methods. (.env may override.)
+Environment=TZ=America/Los_Angeles
+EnvironmentFile=/opt/metrics-server/.env
+ExecStart=/usr/local/bin/bun run server.js
+Restart=on-failure
+RestartSec=3
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+# The data directory must stay writable (SQLite + WAL).
+ReadWritePaths=/opt/metrics-server/data
+
+[Install]
+WantedBy=multi-user.target

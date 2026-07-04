@@ -1,0 +1,8 @@
+node_modules/
+data/
+data-dev/
+dist/
+dashboard/build/
+dashboard/.svelte-kit/
+.env
+*.log

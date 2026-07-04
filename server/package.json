@@ -1,0 +1,17 @@
+{
+  "name": "metrics-server",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Ingest API + SvelteKit dashboard for Dynamics operator call-handling metrics",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun --watch src/index.ts",
+    "test": "bun test",
+    "build:dashboard": "cd dashboard && bun install && bun run build",
+    "seed": "bun run scripts/seed.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

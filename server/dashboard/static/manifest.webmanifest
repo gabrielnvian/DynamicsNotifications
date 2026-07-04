@@ -1,0 +1,17 @@
+{
+	"name": "Dynamics Operator Metrics",
+	"short_name": "Op Metrics",
+	"description": "Call-handling metrics and live operator status for Dynamics 365 Omnichannel.",
+	"id": "/",
+	"start_url": "/",
+	"scope": "/",
+	"display": "standalone",
+	"orientation": "any",
+	"background_color": "#f6f8fa",
+	"theme_color": "#0062a5",
+	"icons": [
+		{ "src": "/icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any" },
+		{ "src": "/icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any" },
+		{ "src": "/icon-maskable-512.png", "type": "image/png", "sizes": "512x512", "purpose": "maskable" }
+	]
+}

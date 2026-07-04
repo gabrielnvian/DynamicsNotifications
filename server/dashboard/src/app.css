@@ -1,0 +1,222 @@
+/* Dynops Dashboard — v2 "live ops console" tokens.
+   DARK is the default theme (data-theme applied by the theme store; app.html seeds
+   dark so first paint is themed). Light is fully retained. Theme-independent tokens
+   (fonts, density) live on :root; everything colour — including the --op operator
+   palette, which is stepped per theme — lives in the [data-theme] blocks. The v2
+   handoff replaced the colour tokens; we keep the
+   extras it omits (--brand-strong, --chart-*, --sk*, --status-*). */
+
+:root {
+	--font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+	--font-num: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; /* every numeric readout */
+	--font-mono: ui-monospace, Menlo, Consolas, monospace;
+
+	/* Density (comfortable defaults) */
+	--kpi-size: 26px;
+	--card-pad: 14px 16px 12px;
+	--row-pad: 11px 14px;
+}
+
+/* DARK — default theme */
+[data-theme='dark'] {
+	color-scheme: dark; /* themes native <input type=date> pickers */
+	--bg: #0a0e17;
+	--card: #111726;
+	--card-2: #151c2c; /* gradient partner for hero / elevated cards */
+	--card-border: rgba(255, 255, 255, 0.08);
+	--divider: rgba(255, 255, 255, 0.06);
+	--head-bg: rgba(255, 255, 255, 0.02);
+	--input-bg: rgba(255, 255, 255, 0.04);
+	--track: rgba(255, 255, 255, 0.07);
+	--hover: rgba(255, 255, 255, 0.04);
+
+	--text: #eaeff7;
+	--text-soft: #b6c2d4;
+	--muted: #8a97ad;
+	--label: #67748c;
+	--faint: #5a6980;
+	--faint2: #4c5a70;
+
+	--brand: #37a0f4; /* brand brightens on dark for contrast */
+	--brand-strong: #2b8fe0;
+	--brand-soft: rgba(55, 160, 244, 0.16);
+	--live: #22d39a; /* emerald "live / good" accent */
+	--amber: #f0a44a; /* below-target flag (neutral) */
+	--danger: #e5484d; /* missed-call markers — distinct from --amber, which "away" wears */
+
+	--card-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 12px 34px rgba(0, 0, 0, 0.42);
+	--atmo: radial-gradient(1100px 560px at 12% -12%, rgba(55, 160, 244, 0.16), transparent 60%),
+		radial-gradient(820px 480px at 102% -6%, rgba(34, 211, 154, 0.1), transparent 58%);
+
+	/* Charts (mirror the reference ck() dark values) */
+	--chart-grid: rgba(255, 255, 255, 0.06);
+	--chart-axis: #67748c;
+	--chart-line: #37a0f4;
+	--chart-band: rgba(255, 255, 255, 0.09);
+	--chart-received: #8a97ad;
+
+	--sk1: #151c2c;
+	--sk2: #1e2637;
+
+	--status-available: #22d39a;
+	--status-on-call: #37a0f4;
+	--status-away: #f0a44a;
+	--status-offline: #5a6980;
+
+	/* Operator qualitative palette — series identity, non-judgmental. Assigned by roster
+	   order (see palette.service). Theme-STEPPED: same eight hues as light, re-stepped for
+	   the dark surface and machine-validated (colorblind ΔE / lightness band / ≥3:1
+	   contrast on #111726) — the old single oklch set failed the deutan check between
+	   slots 5 and 6. Slot ORDER is the CVD-safety mechanism; don't reorder. */
+	--op-1: #3987e5;
+	--op-2: #199e70;
+	--op-3: #c98500;
+	--op-4: #008300;
+	--op-5: #9085e9;
+	--op-6: #e66767;
+	--op-7: #d55181;
+	--op-8: #d95926;
+}
+
+/* LIGHT — retained; brand returns to the original #0062A5 */
+[data-theme='light'] {
+	color-scheme: light;
+	--bg: #eef2f8;
+	--card: #ffffff;
+	--card-2: #f7f9fc;
+	--card-border: rgba(15, 23, 41, 0.08);
+	--divider: #edf1f6;
+	--head-bg: #f8fafc;
+	--input-bg: #f5f8fb;
+	--track: #eaeff5;
+	--hover: #f2f7fc;
+
+	--text: #0f1729;
+	--text-soft: #3d4a61;
+	--muted: #5c6980;
+	--label: #7a88a0;
+	--faint: #94a1b6;
+	--faint2: #aeb9ca;
+
+	--brand: #0062a5;
+	--brand-strong: #004e84;
+	--brand-soft: rgba(0, 98, 165, 0.1);
+	--live: #0fa971;
+	--amber: #b4690e;
+	--danger: #c62f36;
+
+	--card-shadow: 0 1px 2px rgba(15, 23, 41, 0.05), 0 10px 30px rgba(15, 23, 41, 0.05);
+	--atmo: radial-gradient(1100px 560px at 12% -14%, rgba(0, 98, 165, 0.1), transparent 60%),
+		radial-gradient(820px 480px at 102% -6%, rgba(15, 169, 113, 0.07), transparent 58%);
+
+	--chart-grid: #edf1f6;
+	--chart-axis: #94a1b6;
+	--chart-line: #0062a5;
+	--chart-band: #dce3ec;
+	--chart-received: #5c6980;
+
+	--sk1: #e2e7ed;
+	--sk2: #f0f3f7;
+
+	--status-available: #0fa971;
+	--status-on-call: #0062a5;
+	--status-away: #b4690e;
+	--status-offline: #94a1b6;
+
+	/* Operator palette, light steps (validated against #ffffff; three slots sit below
+	   3:1 there, which is legal because identity never rides colour alone — every mark
+	   has a name label, legend, or table row beside it). Same slot order as dark. */
+	--op-1: #2a78d6;
+	--op-2: #1baf7a;
+	--op-3: #eda100;
+	--op-4: #008300;
+	--op-5: #4a3aa7;
+	--op-6: #e34948;
+	--op-7: #e87ba4;
+	--op-8: #eb6834;
+}
+
+[data-density='dense'] {
+	--kpi-size: 22px;
+	--card-pad: 11px 13px 10px;
+	--row-pad: 7px 12px;
+}
+
+/* Base */
+* {
+	box-sizing: border-box;
+}
+html,
+body {
+	margin: 0;
+	height: 100%;
+}
+body {
+	/* The app shell (layout) owns scrolling in its content region, so the page body
+	   itself never scrolls — the atmosphere stays a fixed backdrop behind it. */
+	overflow: hidden;
+	background: var(--atmo), var(--bg);
+	color: var(--text);
+	font-family: var(--font-ui);
+	-webkit-font-smoothing: antialiased;
+}
+/* Monospace tabular numerics — the "console" number treatment. */
+.num {
+	font-family: var(--font-num);
+	font-variant-numeric: tabular-nums;
+}
+.tabular {
+	font-variant-numeric: tabular-nums;
+}
+
+/* Native form-control popups (select option lists, date pickers) render light unless
+   the control itself carries the theme's color-scheme — so set it explicitly. */
+[data-theme='dark'] select,
+[data-theme='dark'] input,
+[data-theme='dark'] textarea {
+	color-scheme: dark;
+}
+[data-theme='light'] select,
+[data-theme='light'] input,
+[data-theme='light'] textarea {
+	color-scheme: light;
+}
+
+@keyframes cc-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+@keyframes cc-shimmer {
+	0% {
+		background-position: 200% 0;
+	}
+	100% {
+		background-position: -200% 0;
+	}
+}
+/* v2 additions */
+@keyframes v2draw {
+	from {
+		stroke-dashoffset: 1;
+	}
+	to {
+		stroke-dashoffset: 0;
+	}
+}
+@keyframes v2pulse {
+	0%,
+	100% {
+		opacity: 1;
+		transform: scale(1);
+	}
+	50% {
+		opacity: 0.3;
+		transform: scale(0.7);
+	}
+}
+@keyframes v2spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
