@@ -1,0 +1,3 @@
+capture listening on 127.0.0.1:3210 (events -> /root/WebstormProjects/DynamicsNotifications/spike/zoom-capture/events.jsonl)
+2026-07-06T22:21:20.111Z meeting.participant_joined_breakout_room sig_valid=null
+2026-07-06T22:21:20.117Z url_validation challenge (secret MISSING)

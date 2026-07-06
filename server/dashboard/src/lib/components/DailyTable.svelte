@@ -36,7 +36,7 @@
 
 	// Coverage column only where the server sends it (single-day team view) — it's
 	// the table twin of the chart's "no one available" shading.
-	const UNCOV_COL = { key: 'uncovered_seconds', label: 'No one available', align: 'r' } as const;
+	const UNCOV_COL = { key: 'uncovered_seconds', label: 'No one free', align: 'r' } as const;
 	const hasUncovered = $derived(rows.some((r) => r.uncovered_seconds != null));
 	const cols = $derived(
 		hasUncovered ? [...BASE_COLS.slice(0, 5), UNCOV_COL, ...BASE_COLS.slice(5)] : BASE_COLS

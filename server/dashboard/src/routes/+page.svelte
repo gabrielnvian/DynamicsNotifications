@@ -156,6 +156,20 @@
 	const uncoveredTotal = $derived(
 		coverage && coverage.staffed_start_ms != null ? coverage.uncovered_seconds : null
 	);
+	// Exact gap intervals in hour-slot units from the chart's first label, so the
+	// calls chart washes only the true no-free stretches instead of whole hours.
+	// Browser-local clock: viewers and the server share Pacific — the same
+	// convention the presence timeline already uses.
+	const gapSlots = $derived.by(() => {
+		const first = days[0]?.label;
+		if (!coverage || !first) return null;
+		const firstSlot = Number(first.slice(0, 2));
+		const toSlot = (ms: number) => {
+			const d = new Date(ms);
+			return d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600 - firstSlot;
+		};
+		return coverage.gaps.map((g) => ({ s0: toSlot(g.start_ms), s1: toSlot(g.end_ms) }));
+	});
 
 	// On shift = operators currently taking calls (available / on a call), of those reporting.
 	const onShift = $derived(
@@ -244,7 +258,7 @@
 				series={sMissed}
 			/>
 			<KpiCard
-				label="No one available"
+				label="No one free"
 				value={uncoveredTotal == null ? '—' : fmtHoursMinutes(uncoveredTotal)}
 				sub={uncoveredTotal == null ? 'no presence history' : 'callers reach voicemail'}
 				series={sUncoveredMin}
@@ -262,6 +276,7 @@
 				received={sReceived}
 				{labels}
 				uncovered={sUncovered}
+				gaps={gapSlots}
 				subtitle={`per hour · ${dayLabel}`}
 			/>
 			<TrendChart
@@ -276,7 +291,7 @@
 				detail={(i) =>
 					`${sAnswered[i]} of ${sReceived[i]} answered` +
 					(sUncovered && sUncovered[i] >= 60
-						? ` · no one available ${fmtHoursMinutes(sUncovered[i])}`
+						? ` · no one free ${fmtHoursMinutes(sUncovered[i])}`
 						: '')}
 			/>
 		</div>

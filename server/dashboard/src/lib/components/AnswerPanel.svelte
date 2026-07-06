@@ -66,12 +66,12 @@
 			<div class="desc">
 				{answered} of {received} calls answered over {rangeShort}.
 				{#if belowTarget && targetPct != null}<span class="below">Below the {targetPct}% target.</span>{/if}
-				<!-- The counts only see calls that RANG someone. With no one available, calls
-				     go straight to voicemail unseen — without this line a fully-uncovered hour
-				     reads as a perfect one. -->
+				<!-- The counts only see calls that RANG someone. With no one free (on a call /
+				     away / offline all count), calls go straight to voicemail unseen — without
+				     this line a fully-uncovered hour reads as a perfect one. -->
 				{#if uncovered}
-					<span class="uncov">No one was available for {uncovered}</span> — callers then went
-					straight to voicemail and aren't counted above.
+					<span class="uncov">No one was free to answer for {uncovered}</span> — callers then
+					went straight to voicemail and aren't counted above.
 				{/if}
 			</div>
 		</div>

@@ -168,7 +168,7 @@
 				<span class="skey"><span class="swatch" style="background:{m.bg}"></span><span class="slab">{m.label}</span></span>
 			{/each}
 			{#if coverage && coverage.gaps.length > 0}
-				<span class="skey"><span class="swatch" style="background:var(--danger)"></span><span class="slab">No one available</span></span>
+				<span class="skey" title="Stretches when every operator was on a call, away, or offline — callers reached voicemail"><span class="swatch" style="background:var(--danger)"></span><span class="slab">No one free</span></span>
 			{/if}
 			<button
 				class="skey mkey"
@@ -186,22 +186,23 @@
 		<div class="none">No presence recorded for this day.</div>
 	{:else}
 	<div class="grid">
-		<!-- Team coverage lane first: red = NOBODY available while someone was on shift,
-		     i.e. every call in that stretch went straight to voicemail without ringing.
-		     Segments carry a native title (start – end · length); the per-operator lanes
-		     below explain each stretch, and the row total gives the day's sum. -->
+		<!-- Team coverage lane first: red = NO ONE free to answer (everyone on a call,
+		     away, or offline) while someone was on shift — every call in that stretch
+		     went straight to voicemail without ringing. Segments carry a native title
+		     (start – end · length); the per-operator lanes below explain each stretch,
+		     and the row total gives the day's sum. -->
 		{#if coverage && coverage.gaps.length > 0}
 			<div
 				class="row team"
 				role="img"
-				aria-label={`No one available for ${fmtHoursMinutes(coverage.uncovered_seconds)} across ${coverage.gaps.length} ${coverage.gaps.length === 1 ? 'stretch' : 'stretches'} of the staffed day`}
+				aria-label={`No one free to answer for ${fmtHoursMinutes(coverage.uncovered_seconds)} across ${coverage.gaps.length} ${coverage.gaps.length === 1 ? 'stretch' : 'stretches'} of the staffed day`}
 			>
-				<span class="name teamname">No one available</span>
+				<span class="name teamname">No one free</span>
 				<span class="lane teamlane">
 					{#each coverage.gaps as g}
 						<span
 							class="gap"
-							title={`${clock(g.start_ms)} – ${clock(g.end_ms)} · no one available for ${fmtHoursMinutes(Math.round((g.end_ms - g.start_ms) / 1000))}`}
+							title={`${clock(g.start_ms)} – ${clock(g.end_ms)} · no one free to answer for ${fmtHoursMinutes(Math.round((g.end_ms - g.start_ms) / 1000))}`}
 							style="left:{pct(g.start_ms)}%;width:max(2px,{pct(g.end_ms) - pct(g.start_ms)}%)"
 						></span>
 					{/each}

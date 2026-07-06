@@ -15,6 +15,7 @@
 		received,
 		labels,
 		uncovered = null,
+		gaps = null,
 		// viewBox units — a full-width card should pass a larger W, or the SVG scale-up
 		// blows the axis text past the UI type sizes.
 		W = 720,
@@ -25,7 +26,8 @@
 		answered: number[];
 		received: number[];
 		labels: string[];
-		uncovered?: number[] | null; // seconds per slot with zero operators available
+		uncovered?: number[] | null; // seconds per slot with no one free (tooltip row)
+		gaps?: Array<{ s0: number; s1: number }> | null; // exact no-free intervals, slot units from the first label
 		W?: number;
 		H?: number;
 	} = $props();
@@ -35,17 +37,29 @@
 	const gid = uid('band');
 	const chart = $derived(buildStackedCallsChart(answered, received, labels, { W, H }));
 
-	// Shade a slot from 5 min of no-coverage up — sub-5-min holes are shift-change /
-	// status-flap jitter, not an outage worth ink (exact minutes stay in the tooltip).
+	// Wash the EXACT no-free intervals, not whole slots — an 11-minute hole must not
+	// paint a full hour red next to that hour's answered calls. Slot i's band is
+	// centred on its point ([xᵢ−step/2, xᵢ+step/2]), so continuous slot-time s maps
+	// to left + (s − 0.5)·step. Falls back to whole-slot washes (≥5 min, jitter
+	// isn't an outage) when only per-slot seconds are available.
 	const UNCOV_SHADE_SEC = 300;
 	const uncovBands = $derived.by(() => {
-		if (!uncovered || answered.length === 0) return [];
+		if (answered.length === 0) return [];
 		const { left, right } = chart.plot;
-		const half = answered.length > 1 ? (right - left) / (answered.length - 1) / 2 : (right - left) / 2;
+		const step = answered.length > 1 ? (right - left) / (answered.length - 1) : right - left;
+
+		if (gaps) {
+			const x = (s: number) => Math.max(left, Math.min(right, left + (s - 0.5) * step));
+			return gaps
+				.map((g) => ({ x1: x(g.s0), x2: x(g.s1) }))
+				.filter((r) => r.x2 - r.x1 > 0.5);
+		}
+
+		if (!uncovered) return [];
 		return uncovered
 			.map((sec, i) => ({ sec, x: chart.points[i]?.x ?? 0 }))
 			.filter((b) => b.sec >= UNCOV_SHADE_SEC)
-			.map((b) => ({ x1: Math.max(left, b.x - half), x2: Math.min(right, b.x + half) }));
+			.map((b) => ({ x1: Math.max(left, b.x - step / 2), x2: Math.min(right, b.x + step / 2) }));
 	});
 
 	let hoverIdx = $state<number | null>(null);
@@ -74,7 +88,7 @@
 			<span class="lg"><span class="sw sw-band"></span>Not answered</span>
 			<span class="lg"><span class="sw sw-rec"></span>Received (total)</span>
 			{#if uncovBands.length > 0}
-				<span class="lg"><span class="sw sw-uncov"></span>No one available</span>
+				<span class="lg" title="Stretches when every operator was on a call, away, or offline — callers reached voicemail"><span class="sw sw-uncov"></span>No one free</span>
 			{/if}
 		</div>
 	</div>
@@ -143,7 +157,7 @@
 				<span class="row"><span class="k">Received</span><span class="v num">{hover.received}</span></span>
 				<span class="row"><span class="k muted">Not answered</span><span class="v num muted">{hover.notAnswered}</span></span>
 				{#if hoverIdx != null && uncovered && (uncovered[hoverIdx] ?? 0) >= 60}
-					<span class="row"><span class="k uncov">No one available</span><span class="v num uncov">{fmtHoursMinutes(uncovered[hoverIdx])}</span></span>
+					<span class="row"><span class="k uncov">No one free</span><span class="v num uncov">{fmtHoursMinutes(uncovered[hoverIdx])}</span></span>
 				{/if}
 			</div>
 		{/if}
