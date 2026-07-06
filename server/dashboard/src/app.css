@@ -56,6 +56,10 @@
 	   visibly distinct from grid/surface greys (the old white@9% was ~1.1:1, invisible).
 	   Final alpha lives IN the token so the legend swatch shows the painted colour. */
 	--chart-band: rgba(240, 164, 74, 0.3);
+	/* "No one available" wash behind the calls chart — danger hue (a state, not a
+	   series) at backdrop alpha; like --chart-band, the alpha lives in the token so
+	   the legend swatch matches the paint. */
+	--chart-uncovered: rgba(229, 72, 77, 0.18);
 	--chart-received: #8a97ad;
 
 	--sk1: #151c2c;
@@ -116,6 +120,7 @@
 	--chart-axis: #94a1b6;
 	--chart-line: #0062a5;
 	--chart-band: rgba(180, 105, 14, 0.22); /* see dark block — hue separates it from the grey grid */
+	--chart-uncovered: rgba(198, 47, 54, 0.14); /* see dark block — the no-coverage wash */
 	--chart-received: #5c6980;
 
 	--sk1: #e2e7ed;

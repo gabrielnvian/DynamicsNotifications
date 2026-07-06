@@ -18,6 +18,7 @@ import {
   summary,
 } from "./metrics.ts";
 import {
+  dayCoverage,
   listPresence,
   onlineSummary,
   PRESENCE_STATUSES,
@@ -309,7 +310,9 @@ const server = Bun.serve({
             operators.push({ first_name: name, online_seconds: 0, spans: [], missed_ms: times });
           }
         }
-        return json({ ...tl, operators });
+        // Team coverage: the zero-available windows (callers → voicemail, unseen by
+        // the call events) alongside the per-operator lanes that explain them.
+        return json({ ...tl, coverage: dayCoverage(db, day), operators });
       }
       // Online-time rollup (any-status heartbeat) — the "online" side of the
       // active-vs-online comparison. Full role only, like /history.

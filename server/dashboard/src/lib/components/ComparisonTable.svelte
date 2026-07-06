@@ -36,7 +36,7 @@
 		{ key: 'not_answered', label: 'Not answered', align: 'r' },
 		{ key: 'answer_rate', label: 'Answer rate', align: 'r' },
 		{ key: 'avg_time_to_answer_ms', label: 'Avg time to answer', align: 'r' },
-		{ key: 'avg_handle_ms', label: 'Avg handle time', align: 'r' }
+		{ key: 'avg_handle_ms', label: 'Avg talk time', align: 'r' }
 	];
 
 	type BarMetric =
@@ -54,7 +54,7 @@
 		calls_answered: 'Calls answered',
 		calls_received: 'Calls received',
 		active_hours: 'Active hours',
-		avg_handle_ms: 'Avg handle time',
+		avg_handle_ms: 'Avg talk time',
 		avg_time_to_answer_ms: 'Avg time-to-answer'
 	};
 	const BAR_OPTIONS = Object.entries(BAR_LABELS).map(([value, label]) => ({ value, label }));

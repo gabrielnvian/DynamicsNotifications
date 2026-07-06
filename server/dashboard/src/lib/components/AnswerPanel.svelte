@@ -13,7 +13,8 @@
 		onShift,
 		operatorCount,
 		belowTarget = false,
-		targetPct
+		targetPct,
+		uncovered = null
 	}: {
 		rate: number | null;
 		ratePct: string;
@@ -25,6 +26,7 @@
 		operatorCount: number;
 		belowTarget?: boolean;
 		targetPct?: number;
+		uncovered?: string | null; // formatted "no one available" total, e.g. "1h 42m"
 	} = $props();
 
 	const SIZE = 104;
@@ -64,6 +66,13 @@
 			<div class="desc">
 				{answered} of {received} calls answered over {rangeShort}.
 				{#if belowTarget && targetPct != null}<span class="below">Below the {targetPct}% target.</span>{/if}
+				<!-- The counts only see calls that RANG someone. With no one available, calls
+				     go straight to voicemail unseen — without this line a fully-uncovered hour
+				     reads as a perfect one. -->
+				{#if uncovered}
+					<span class="uncov">No one was available for {uncovered}</span> — callers then went
+					straight to voicemail and aren't counted above.
+				{/if}
 			</div>
 		</div>
 	</div>
@@ -155,6 +164,10 @@
 	}
 	.below {
 		color: var(--amber);
+		font-weight: 600;
+	}
+	.uncov {
+		color: var(--danger);
 		font-weight: 600;
 	}
 	.ministats {

@@ -19,9 +19,10 @@ dashboard visualises five metrics per operator per day:
 2. **Calls received** — how many calls were presented to them.
 3. **Calls answered** — how many they picked up.
 4. **Average time-to-answer** — how long from the call ringing to pickup.
-5. **Average handle time** — how long from pickup until the call's session is
-   closed (includes after-call wrap-up). Labelled **"handle time (incl.
-   wrap-up)"** — it is deliberately *not* called "talk time".
+5. **Average talk time** — how long from pickup to hang-up. (Original brief
+   measured pickup → session close, wrap-up included, and banned the "talk time"
+   label; extension v1.9 moved the end signal to hang-up, so it now *is* talk
+   time and is labelled as such. Wrap-up counts as available time.)
 
 The dashboard is a **read-only reporting tool**. It does not write data.
 
@@ -79,7 +80,7 @@ every same-origin `fetch` automatically. So:
 | Not answered | `calls_received - calls_answered` | integer (derive client-side) |
 | Answer rate | `calls_answered / calls_received` | percentage, 1 decimal; show `—` if received = 0 |
 | Avg time-to-answer | `avg_time_to_answer_ms` | seconds, 1 decimal (e.g. `4.3s`); `—` if null |
-| Avg handle time | `avg_handle_ms` | `Mm Ss` (e.g. `4m 22s`); label "incl. wrap-up"; `—` if null |
+| Avg talk time | `avg_handle_ms` | `Mm Ss` (e.g. `4m 22s`); talk only since v1.9 (answer → hang-up); `—` if null |
 | Handle sample | `handle_sample` | small muted "(n=170)" next to avg handle — how many calls the handle time was actually measured on (it can be lower than answered, since some end signals are missed) |
 
 Rules:

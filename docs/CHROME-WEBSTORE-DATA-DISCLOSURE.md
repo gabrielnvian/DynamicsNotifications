@@ -38,7 +38,7 @@ Per calendar day (operator-local), as plain numbers:
 | Calls received (count) | Number of incoming calls presented. |
 | Calls answered (count) | Number of calls picked up. |
 | Time-to-answer (ms) | Ring-to-pickup duration, per answered call. |
-| Handle time (ms) | Pickup-to-session-close duration (includes wrap-up), per answered call where measurable (later version). |
+| Handle time (ms) | Pickup-to-hang-up (talk) duration, per answered call where measurable; after-call wrap-up is not included (since v1.9). |
 
 ### Current status (live presence board)
 | Item | What it is |

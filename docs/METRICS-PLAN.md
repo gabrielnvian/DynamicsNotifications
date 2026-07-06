@@ -47,11 +47,12 @@ CIDR-only choice stands and is justified.
 
 **B. Exact talk-time is not observable** from a content script (no CIF event, CIF
 is unreachable from the isolated world, most calls end by the customer hanging up
-with no agent click). Metric #5 ships as **handle time = Accept → the call's
-session tab detaching** from the Omnichannel session panel — exactly your stated
-definition, and explicitly *not* the presence/"ready" event. It includes
-wrap-up, is labelled as such, degrades to null when the end signal is missed, and
-is capped defensively.
+with no agent click). Metric #5 originally shipped as **handle time = Accept →
+the call's session tab detaching** from the Omnichannel session panel (included
+wrap-up). **Superseded in extension v1.9:** the end signal is now presence
+flipping back to "Available" at hang-up, so the metric is **talk time only** and
+wrap-up counts as available; the tab detach remains a backstop. It degrades to
+null when the end signal is missed and is capped defensively.
 
 ## 3. Decisions
 

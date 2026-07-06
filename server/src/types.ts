@@ -55,4 +55,9 @@ export interface DailyPoint {
   avg_time_to_answer_ms: number | null;
   avg_handle_ms: number | null;
   handle_sample: number;
+  // Single-day TEAM slots only: seconds of this slot with ZERO operators in the
+  // "available" status while anyone was on shift — callers then go straight to
+  // voicemail without ringing, invisible to the call counters. Absent on multi-day
+  // and per-operator series, and 0 on days before presence history exists.
+  uncovered_seconds?: number;
 }

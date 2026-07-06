@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import { openDb } from "./db.ts";
 import { deleteOperator } from "./metrics.ts";
 import {
+  dayCoverage,
+  gapSecondsBySlot,
   listPresence,
   onlineSummary,
   PRESENCE_STALE_MS,
@@ -152,5 +154,119 @@ test("presence merges shared-station sessions into one row per first name", () =
   // Most-present signal wins: on_call beats away beats (stale) offline.
   expect(gabriels[0]?.status).toBe("on_call");
   expect(gabriels[0]?.last_seen_ms).toBe(300_000);
+  db.close();
+});
+
+// Coverage tests write spans directly (like scripts/backfill-day.ts) — building an
+// arbitrary-length span from ≤75s heartbeats would take hundreds of recordPresence
+// calls for no extra fidelity.
+function span(
+  db: ReturnType<typeof openDb>,
+  install: string,
+  name: string,
+  status: string,
+  startMs: number,
+  endMs: number,
+): void {
+  db.query(
+    `INSERT INTO presence_spans (install_uuid, first_name, status, started_at, last_beat)
+     VALUES (?, ?, ?, ?, ?)`,
+  ).run(install, name, status, startMs, endMs);
+}
+
+test("dayCoverage: gaps are the zero-available windows inside the staffed window", () => {
+  const db = openDb(":memory:");
+  const at = (h: number, m: number) => new Date(2026, 5, 15, h, m).getTime();
+  // Gabriel: available 9:00–9:30, away 9:30–10:30, available 10:30–11:00.
+  // Sam covers part of Gabriel's away stretch: available 9:45–9:50.
+  span(db, A, "Gabriel", "available", at(9, 0), at(9, 30));
+  span(db, A, "Gabriel", "away", at(9, 30), at(10, 30));
+  span(db, A, "Gabriel", "available", at(10, 30), at(11, 0));
+  span(db, B, "Sam", "available", at(9, 45), at(9, 50));
+
+  const c = dayCoverage(db, "2026-06-15");
+  expect(c.staffed_start_ms).toBe(at(9, 0));
+  expect(c.staffed_end_ms).toBe(at(11, 0));
+  expect(c.gaps).toEqual([
+    { start_ms: at(9, 30), end_ms: at(9, 45) },
+    { start_ms: at(9, 50), end_ms: at(10, 30) },
+  ]);
+  expect(c.uncovered_seconds).toBe(15 * 60 + 40 * 60);
+  db.close();
+});
+
+test("dayCoverage: leading/trailing non-available time counts; an empty day is null", () => {
+  const db = openDb(":memory:");
+  const at = (h: number, m: number) => new Date(2026, 5, 15, h, m).getTime();
+  // On shift (away = signed in, e.g. Dynamics "Busy") before and after the only
+  // available stretch — both edges are gaps: callers reached voicemail while
+  // someone was at a desk.
+  span(db, A, "Gabriel", "away", at(8, 0), at(8, 30));
+  span(db, A, "Gabriel", "available", at(8, 30), at(9, 0));
+  span(db, A, "Gabriel", "on_call", at(9, 0), at(9, 20));
+
+  const c = dayCoverage(db, "2026-06-15");
+  expect(c.gaps).toEqual([
+    { start_ms: at(8, 0), end_ms: at(8, 30) },
+    { start_ms: at(9, 0), end_ms: at(9, 20) },
+  ]);
+  expect(c.uncovered_seconds).toBe(50 * 60);
+
+  expect(dayCoverage(db, "2026-06-14")).toEqual({
+    staffed_start_ms: null,
+    staffed_end_ms: null,
+    uncovered_seconds: 0,
+    gaps: [],
+  });
+  db.close();
+});
+
+test("gapSecondsBySlot splits gaps on wall-clock slot boundaries", () => {
+  const at = (h: number, m: number) => new Date(2026, 5, 15, h, m).getTime();
+
+  // 13:02–13:31 stays in hour-slot 13; 13:50–14:10 splits 600/600 across 13 and 14.
+  const hourly = gapSecondsBySlot(
+    [
+      { start_ms: at(13, 2), end_ms: at(13, 31) },
+      { start_ms: at(13, 50), end_ms: at(14, 10) },
+    ],
+    60,
+  );
+  expect(hourly.get(13)).toBe(29 * 60 + 10 * 60);
+  expect(hourly.get(14)).toBe(10 * 60);
+
+  // Same gap in 30-min slots: 13:50–14:00 → slot 27, 14:00–14:10 → slot 28.
+  const half = gapSecondsBySlot([{ start_ms: at(13, 50), end_ms: at(14, 10) }], 30);
+  expect(half.get(27)).toBe(600);
+  expect(half.get(28)).toBe(600);
+});
+
+test("dayCoverage drops sub-minute holes (status-flip beat jitter, not real gaps)", () => {
+  const db = openDb(":memory:");
+  const at = (h: number, m: number, s = 0) => new Date(2026, 5, 15, h, m, s).getTime();
+  // available → (20s hole from the beat cadence) → on_call 10 min → available.
+  // The 20s hole is measurement noise; the 10-min on_call stretch is the real gap.
+  span(db, A, "Gabriel", "available", at(9, 0), at(9, 30));
+  span(db, A, "Gabriel", "on_call", at(9, 30, 20), at(9, 40, 20));
+  span(db, A, "Gabriel", "available", at(9, 40, 40), at(10, 0));
+
+  const c = dayCoverage(db, "2026-06-15");
+  expect(c.gaps).toEqual([{ start_ms: at(9, 30), end_ms: at(9, 40, 40) }]);
+  expect(c.uncovered_seconds).toBe(640);
+  db.close();
+});
+
+test("dayCoverage: a second station saying 'available' mid-call does not count as covered", () => {
+  const db = openDb(":memory:");
+  const at = (h: number, m: number) => new Date(2026, 5, 15, h, m).getTime();
+  // Gabriel's station A reports available all hour, but station B shows him on a
+  // call 9:20–9:40 — per person the most-present status wins, so that stretch is
+  // NOT coverage (he can't take another call) and nobody else is available.
+  span(db, A, "Gabriel", "available", at(9, 0), at(10, 0));
+  span(db, B, "Gabriel", "on_call", at(9, 20), at(9, 40));
+
+  const c = dayCoverage(db, "2026-06-15");
+  expect(c.gaps).toEqual([{ start_ms: at(9, 20), end_ms: at(9, 40) }]);
+  expect(c.uncovered_seconds).toBe(1200);
   db.close();
 });

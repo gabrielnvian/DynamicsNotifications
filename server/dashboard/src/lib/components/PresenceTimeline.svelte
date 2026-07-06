@@ -7,19 +7,21 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { capitalizeName, fmtHoursMinutes } from '$lib/format.formatter';
-	import type { PresenceSpan, SpanStatus } from '$lib/presence.model';
+	import type { DayCoverage, PresenceSpan, SpanStatus } from '$lib/presence.model';
 
 	let {
 		title = 'Online status by operator',
 		subtitle = '',
 		start_ms,
 		end_ms,
+		coverage = null,
 		operators
 	}: {
 		title?: string;
 		subtitle?: string;
 		start_ms: number;
 		end_ms: number;
+		coverage?: DayCoverage | null; // team zero-available windows (callers → voicemail)
 		operators: {
 			first_name: string;
 			online_seconds: number;
@@ -165,6 +167,9 @@
 			{#each Object.values(STATUS_META) as m}
 				<span class="skey"><span class="swatch" style="background:{m.bg}"></span><span class="slab">{m.label}</span></span>
 			{/each}
+			{#if coverage && coverage.gaps.length > 0}
+				<span class="skey"><span class="swatch" style="background:var(--danger)"></span><span class="slab">No one available</span></span>
+			{/if}
 			<button
 				class="skey mkey"
 				class:off={!showMissed}
@@ -181,6 +186,29 @@
 		<div class="none">No presence recorded for this day.</div>
 	{:else}
 	<div class="grid">
+		<!-- Team coverage lane first: red = NOBODY available while someone was on shift,
+		     i.e. every call in that stretch went straight to voicemail without ringing.
+		     Segments carry a native title (start – end · length); the per-operator lanes
+		     below explain each stretch, and the row total gives the day's sum. -->
+		{#if coverage && coverage.gaps.length > 0}
+			<div
+				class="row team"
+				role="img"
+				aria-label={`No one available for ${fmtHoursMinutes(coverage.uncovered_seconds)} across ${coverage.gaps.length} ${coverage.gaps.length === 1 ? 'stretch' : 'stretches'} of the staffed day`}
+			>
+				<span class="name teamname">No one available</span>
+				<span class="lane teamlane">
+					{#each coverage.gaps as g}
+						<span
+							class="gap"
+							title={`${clock(g.start_ms)} – ${clock(g.end_ms)} · no one available for ${fmtHoursMinutes(Math.round((g.end_ms - g.start_ms) / 1000))}`}
+							style="left:{pct(g.start_ms)}%;width:max(2px,{pct(g.end_ms) - pct(g.start_ms)}%)"
+						></span>
+					{/each}
+				</span>
+				<span class="total num gaptotal">{fmtHoursMinutes(coverage.uncovered_seconds)}</span>
+			</div>
+		{/if}
 		{#each lanes as lane, ri (lane.first_name)}
 			<div
 				class="row"
@@ -382,6 +410,31 @@
 		height: 26px;
 		border-radius: 5px;
 		background: var(--track);
+	}
+	/* Team coverage lane — an aggregate, not a person: slimmer, not clickable. */
+	.row.team {
+		cursor: default;
+	}
+	.row.team:hover .name {
+		color: var(--text-soft);
+		text-decoration: none;
+	}
+	.teamname {
+		font-size: 11px;
+		color: var(--danger);
+	}
+	.teamlane {
+		height: 14px;
+	}
+	.gap {
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		border-radius: 3px;
+		background: var(--danger);
+	}
+	.gaptotal {
+		color: var(--danger);
 	}
 	.span {
 		position: absolute;

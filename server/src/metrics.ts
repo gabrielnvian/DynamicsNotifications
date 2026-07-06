@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { dayCoverage, gapSecondsBySlot, type DayCoverage } from "./presence.ts";
 import type { DailyPoint, OperatorSummary } from "./types.ts";
 
 // Identity model: the dashboard groups everything by FIRST NAME, not install_uuid.
@@ -202,7 +203,19 @@ function slotExpr(slotMin: number): string {
 // batches are excluded — see SAME_DAY_RECEIPT). Auto-sizes to the first..last slot
 // that has activity (fills the slots between so the axis stays continuous), rather
 // than padding empty midnight-to-now slots.
-function slotPoints(db: Database, day: string, slotMin: number, name?: string): DailyPoint[] {
+// Wall-clock slot index of an epoch ms — must match slotExpr's bucketing.
+function slotOfMs(ms: number, slotMin: number): number {
+  const d = new Date(ms);
+  return Math.floor((d.getHours() * 60 + d.getMinutes()) / slotMin);
+}
+
+function slotPoints(
+  db: Database,
+  day: string,
+  slotMin: number,
+  name?: string,
+  coverage?: DayCoverage,
+): DailyPoint[] {
   const where = name ? "AND o.first_name = ? COLLATE NOCASE" : "";
   const params = name ? [day, name] : [day];
   const rows = db
@@ -222,6 +235,15 @@ function slotPoints(db: Database, day: string, slotMin: number, name?: string): 
     .all(...params) as SlotAggRow[];
   const bySlot = new Map<number, SlotAggRow>(rows.map((r) => [r.slot, r]));
   const slots = [...bySlot.keys()];
+
+  // Coverage context (team view): the axis widens to the staffed window, so a
+  // quiet-but-staffed early hour or a trailing no-coverage stretch after the last
+  // call still gets charted instead of silently dropped.
+  const uncov = coverage ? gapSecondsBySlot(coverage.gaps, slotMin) : null;
+  if (coverage && coverage.staffed_start_ms != null && coverage.staffed_end_ms != null) {
+    slots.push(slotOfMs(coverage.staffed_start_ms, slotMin), slotOfMs(coverage.staffed_end_ms, slotMin));
+  }
+
   if (slots.length === 0) return []; // no activity → empty chart (caller shows empty state)
   const first = Math.min(...slots);
   const last = Math.max(...slots);
@@ -238,6 +260,7 @@ function slotPoints(db: Database, day: string, slotMin: number, name?: string): 
       avg_time_to_answer_ms: r && r.cnt_tta > 0 ? Math.round(r.sum_tta_ms / r.cnt_tta) : null,
       avg_handle_ms: r && r.cnt_handle > 0 ? Math.round(r.sum_handle_ms / r.cnt_handle) : null,
       handle_sample: r?.cnt_handle ?? 0,
+      ...(uncov ? { uncovered_seconds: uncov.get(s) ?? 0 } : {}),
     });
   }
   return points;
@@ -266,7 +289,9 @@ export function daily(db: Database, from: string, to: string, name?: string, slo
   }
 
   const days = singleDay
-    ? slotPoints(db, from, slotMin)
+    ? // Team day view gets the coverage context; the per-operator branch above does
+      // not — zero-available is a team fact, not any one person's.
+      slotPoints(db, from, slotMin, undefined, dayCoverage(db, from))
     : densifyDays(
         (
           db

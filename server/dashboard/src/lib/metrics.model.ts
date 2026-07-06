@@ -27,7 +27,7 @@ export interface OperatorSummary {
 	calls_answered: number;
 	answer_rate: number | null; // answered / received; null when received === 0
 	avg_time_to_answer_ms: number | null;
-	avg_handle_ms: number | null; // incl. wrap-up
+	avg_handle_ms: number | null; // talk time: answer → hang-up (wrap-up counts as available)
 	handle_sample: number; // n the handle avg was measured on (may be < answered)
 }
 
@@ -62,6 +62,10 @@ export interface DayPoint {
 	avg_time_to_answer_ms: number | null;
 	avg_handle_ms: number | null;
 	handle_sample: number;
+	// Single-day TEAM slots only: seconds of this slot when NO operator was available
+	// while anyone was on shift (callers → voicemail, unseen by the call counters).
+	// Absent on multi-day / per-operator series and on older server builds.
+	uncovered_seconds?: number;
 }
 
 // GET /v1/metrics — without operator: team `days` + per-operator `byOperator`.

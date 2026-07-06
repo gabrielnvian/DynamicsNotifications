@@ -161,7 +161,7 @@
 				<KpiCard label="Calls answered" value={fmtInt(op.calls_answered)} sub={`${fmtInt(Math.max(0, op.calls_received - op.calls_answered))} not answered`} series={sAnswered} />
 				<KpiCard label="Answer rate" value={fmtAnswerRate(op.answer_rate)} sub={`${fmtInt(op.calls_answered)} / ${fmtInt(op.calls_received)}`} series={sAnswerPct} yMax={100} />
 				<KpiCard label="Avg time-to-answer" value={fmtTimeToAnswer(op.avg_time_to_answer_ms)} sub="ring → pickup" series={sTtaSec} />
-				<KpiCard label="Avg handle time" value={fmtHandle(op.avg_handle_ms)} sub={`includes wrap-up · avg of ${fmtInt(op.handle_sample)} calls`} series={sHandleMin} />
+				<KpiCard label="Avg talk time" value={fmtHandle(op.avg_handle_ms)} sub={`answer to hang-up · avg of ${fmtInt(op.handle_sample)} calls`} series={sHandleMin} />
 			</div>
 
 			<!-- Full-width card → wider viewBox, or the SVG upscale makes the axis text huge. -->
@@ -189,7 +189,7 @@
 					detail={(i) => `${sAnswered[i]} of ${sReceived[i]} answered`}
 				/>
 				<TrendChart title="Avg time-to-answer" subtitle="seconds, ring → pickup" series={sTtaSec} {labels} fmt={(v) => `${Math.round(v)}s`} />
-				<TrendChart title="Avg handle time" subtitle="minutes" series={sHandleMin} {labels} fmt={(v) => `${Math.round(v)}m`} footnote="Incl. wrap-up. Averaged over measured calls; sample varies by day." />
+				<TrendChart title="Avg talk time" subtitle="minutes" series={sHandleMin} {labels} fmt={(v) => `${Math.round(v)}m`} footnote="Answer to hang-up; after-call wrap-up counts as available time. Averaged over measured calls; sample varies by day." />
 				<TrendChart title="Active hours" subtitle="hours/day (Available + talk)" series={sActiveH} {labels} fmt={(v) => `${Math.round(v)}h`} />
 			</div>
 

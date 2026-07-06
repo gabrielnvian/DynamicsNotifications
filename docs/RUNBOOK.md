@@ -57,10 +57,14 @@ Not serving yet.
 
 Needs a LIVE call to confirm the DOM signal. Both the **handle-time metric** and
 the live **`on_call`** status are fully coded in `content.js` but gated behind one
-flag, `CALL_TRACKING_ENABLED = false`. **Definition (locked):** a call spans
-Accept → the call's **session tab detaching** from the Session list. It is **NOT**
-the presence/"ready"/"wrap-up" event — using that as the close signal produces
-infinite/garbage call lengths (previously ruled out).
+flag, `CALL_TRACKING_ENABLED = false`. **Definition (updated in v1.9):** a call
+spans Accept → **presence flipping back to "Available"** (Dynamics auto-sets DND
+during a call and restores Available the instant of hang-up), so `handle_ms` is
+**talk time only** — after-call wrap-up counts as available time. The **session
+tab detaching** (end of wrap-up) stays as the backstop end signal for the rare
+"went straight to Away after the call" case. (Pre-v1.9 the tab detach was the
+primary signal, which *included* wrap-up — dashboards must label the metric
+"talk time", not "handle time incl. wrap-up".)
 
 **Procedure:**
 1. On the next live test call, have peer `red` capture the DOM through all states

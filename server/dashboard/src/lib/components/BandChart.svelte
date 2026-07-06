@@ -1,7 +1,10 @@
 <script lang="ts">
 	// Calls band: answered area, the not-answered band up to the received total, and
-	// the received line.
+	// the received line. Optional per-slot `uncovered` seconds paint a danger wash
+	// behind the slots where no operator was available — the counts alone read as "a
+	// quiet hour" when the phones were actually going to voicemail.
 	import { buildStackedCallsChart } from '$lib/chart-geometry.service';
+	import { fmtHoursMinutes } from '$lib/format.formatter';
 	import { prefs } from '$lib/stores/prefs.svelte';
 	import { uid } from '$lib/uid';
 
@@ -11,6 +14,7 @@
 		answered,
 		received,
 		labels,
+		uncovered = null,
 		// viewBox units — a full-width card should pass a larger W, or the SVG scale-up
 		// blows the axis text past the UI type sizes.
 		W = 720,
@@ -21,6 +25,7 @@
 		answered: number[];
 		received: number[];
 		labels: string[];
+		uncovered?: number[] | null; // seconds per slot with zero operators available
 		W?: number;
 		H?: number;
 	} = $props();
@@ -29,6 +34,19 @@
 	const BOTTOM = $derived(H - 22);
 	const gid = uid('band');
 	const chart = $derived(buildStackedCallsChart(answered, received, labels, { W, H }));
+
+	// Shade a slot from 5 min of no-coverage up — sub-5-min holes are shift-change /
+	// status-flap jitter, not an outage worth ink (exact minutes stay in the tooltip).
+	const UNCOV_SHADE_SEC = 300;
+	const uncovBands = $derived.by(() => {
+		if (!uncovered || answered.length === 0) return [];
+		const { left, right } = chart.plot;
+		const half = answered.length > 1 ? (right - left) / (answered.length - 1) / 2 : (right - left) / 2;
+		return uncovered
+			.map((sec, i) => ({ sec, x: chart.points[i]?.x ?? 0 }))
+			.filter((b) => b.sec >= UNCOV_SHADE_SEC)
+			.map((b) => ({ x1: Math.max(left, b.x - half), x2: Math.min(right, b.x + half) }));
+	});
 
 	let hoverIdx = $state<number | null>(null);
 	function onMove(e: PointerEvent): void {
@@ -55,6 +73,9 @@
 			<span class="lg"><span class="sw sw-ans"></span>Answered</span>
 			<span class="lg"><span class="sw sw-band"></span>Not answered</span>
 			<span class="lg"><span class="sw sw-rec"></span>Received (total)</span>
+			{#if uncovBands.length > 0}
+				<span class="lg"><span class="sw sw-uncov"></span>No one available</span>
+			{/if}
 		</div>
 	</div>
 	<div class="chartwrap">
@@ -72,6 +93,9 @@
 					<stop offset="100%" stop-color="var(--chart-line)" stop-opacity="0" />
 				</linearGradient>
 			</defs>
+			{#each uncovBands as b}
+				<rect x={b.x1} y={TOP} width={b.x2 - b.x1} height={BOTTOM - TOP} fill="var(--chart-uncovered)" />
+			{/each}
 			{#each chart.gridlines as g}
 				<line x1="42" x2={W - 16} y1={g.y} y2={g.y} stroke="var(--chart-grid)" stroke-width="1" />
 				<text x="36" y={g.y + 3} text-anchor="end" class="axis">{g.label}</text>
@@ -118,6 +142,9 @@
 				<span class="row"><span class="k">Answered</span><span class="v num">{hover.answered}</span></span>
 				<span class="row"><span class="k">Received</span><span class="v num">{hover.received}</span></span>
 				<span class="row"><span class="k muted">Not answered</span><span class="v num muted">{hover.notAnswered}</span></span>
+				{#if hoverIdx != null && uncovered && (uncovered[hoverIdx] ?? 0) >= 60}
+					<span class="row"><span class="k uncov">No one available</span><span class="v num uncov">{fmtHoursMinutes(uncovered[hoverIdx])}</span></span>
+				{/if}
 			</div>
 		{/if}
 	</div>
@@ -173,6 +200,12 @@
 	}
 	.sw-rec {
 		background: var(--chart-received);
+	}
+	.sw-uncov {
+		background: var(--chart-uncovered);
+	}
+	.uncov {
+		color: var(--danger) !important;
 	}
 	.chartwrap {
 		position: relative;

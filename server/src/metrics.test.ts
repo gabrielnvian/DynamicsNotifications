@@ -93,3 +93,33 @@ test("?operator= matching is case-insensitive (hand-typed URLs, API consumers)",
   expect(dailyFlat(db, "2026-06-01", "2026-06-01", "DANA").length).toBe(1);
   db.close();
 });
+
+test("single-day team slots carry uncovered_seconds and widen to the staffed window", () => {
+  const db = openDb(":memory:");
+  const at = (h: number, m: number) => new Date(2026, 5, 15, h, m).getTime();
+  // One answered call at 10:05 — without coverage the axis would stop at slot 10.
+  feed(
+    db,
+    "Ada",
+    [{ event_id: "eeee0001", type: "call_received", day: "2026-06-15" }],
+    at(10, 5),
+  );
+  // Ada available 9:30–10:30, then away (signed in, not routable) until 11:30.
+  db.query(
+    `INSERT INTO presence_spans (install_uuid, first_name, status, started_at, last_beat)
+     VALUES (?, ?, 'available', ?, ?), (?, ?, 'away', ?, ?)`,
+  ).run(
+    "aaaaaaaa-1111-2222-3333-444444444444", "ada", at(9, 30), at(10, 30),
+    "aaaaaaaa-1111-2222-3333-444444444444", "ada", at(10, 30), at(11, 30),
+  );
+
+  const d = daily(db, "2026-06-15", "2026-06-15");
+  expect(d.days.map((p) => p.label)).toEqual(["09:00", "10:00", "11:00"]); // staffed 9:30→11:30
+  expect(d.days.map((p) => p.uncovered_seconds)).toEqual([0, 1800, 1800]);
+  expect(d.days[1].calls_received).toBe(1);
+
+  // Per-operator series never carries the team coverage field.
+  const op = daily(db, "2026-06-15", "2026-06-15", "Ada");
+  expect(op.days.every((p) => p.uncovered_seconds === undefined)).toBe(true);
+  db.close();
+});

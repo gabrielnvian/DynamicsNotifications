@@ -235,7 +235,7 @@
 				series={sTtaSec}
 			/>
 			<KpiCard
-				label="Avg handle"
+				label="Avg talk time"
 				value={fmtHandle(team.avg_handle_ms)}
 				delta={showDeltas ? delta(team.avg_handle_ms, prevTeam?.avg_handle_ms ?? null) : undefined}
 				series={sHandleMin}

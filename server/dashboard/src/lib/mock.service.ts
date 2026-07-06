@@ -16,6 +16,7 @@ import type {
 	TeamSummary
 } from './metrics.model';
 import type {
+	DayCoverage,
 	LiveStatus,
 	OnlineSummaryResponse,
 	PresenceResponse,
@@ -338,7 +339,42 @@ export function mockPresenceTimeline(day: string): PresenceTimelineResponse {
 	operators.sort(
 		(a, b) => b.online_seconds - a.online_seconds || a.first_name.localeCompare(b.first_name)
 	);
-	return { day, start_ms: dayStart, end_ms: dayEnd, operators };
+	return { day, start_ms: dayStart, end_ms: dayEnd, coverage: mockCoverage(operators), operators };
+}
+
+// Coverage derived from the generated spans with the server's rule (zero-available
+// windows inside the first..last-signal staffed window) so the mock lane, KPI, and
+// timeline agree the way prod does.
+function mockCoverage(operators: { spans: PresenceSpan[] }[]): DayCoverage {
+	const spans = operators.flatMap((o) => o.spans);
+	if (spans.length === 0) {
+		return { staffed_start_ms: null, staffed_end_ms: null, uncovered_seconds: 0, gaps: [] };
+	}
+
+	const staffedStart = Math.min(...spans.map((s) => s.start_ms));
+	const staffedEnd = Math.max(...spans.map((s) => s.end_ms));
+
+	const avail = spans
+		.filter((s) => s.status === 'available')
+		.map((s) => [s.start_ms, s.end_ms] as [number, number])
+		.sort((a, b) => a[0] - b[0]);
+	const merged: Array<[number, number]> = [];
+	for (const [s, e] of avail) {
+		const last = merged[merged.length - 1];
+		if (!last || s > last[1]) merged.push([s, e]);
+		else if (e > last[1]) last[1] = e;
+	}
+
+	const gaps: { start_ms: number; end_ms: number }[] = [];
+	let cursor = staffedStart;
+	for (const [s, e] of merged) {
+		if (s > cursor) gaps.push({ start_ms: cursor, end_ms: s });
+		cursor = Math.max(cursor, e);
+	}
+	if (cursor < staffedEnd) gaps.push({ start_ms: cursor, end_ms: staffedEnd });
+
+	const uncovered_seconds = Math.round(gaps.reduce((a, g) => a + (g.end_ms - g.start_ms), 0) / 1000);
+	return { staffed_start_ms: staffedStart, staffed_end_ms: staffedEnd, uncovered_seconds, gaps };
 }
 
 // Online-time rollup, derived from mockPresenceTimeline per day so the timeline,

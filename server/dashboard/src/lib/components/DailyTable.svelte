@@ -18,11 +18,12 @@
 		| 'calls_received'
 		| 'calls_answered'
 		| 'not_answered'
+		| 'uncovered_seconds'
 		| 'answer_rate'
 		| 'avg_time_to_answer_ms'
 		| 'avg_handle_ms';
 
-	const COLS: { key: DailyKey; label: string; align: 'l' | 'r' }[] = [
+	const BASE_COLS: { key: DailyKey; label: string; align: 'l' | 'r' }[] = [
 		{ key: 'day', label: 'Day', align: 'l' },
 		{ key: 'active_seconds', label: 'Active', align: 'r' },
 		{ key: 'calls_received', label: 'Received', align: 'r' },
@@ -30,8 +31,16 @@
 		{ key: 'not_answered', label: 'Not answered', align: 'r' },
 		{ key: 'answer_rate', label: 'Answer rate', align: 'r' },
 		{ key: 'avg_time_to_answer_ms', label: 'Avg time to answer', align: 'r' },
-		{ key: 'avg_handle_ms', label: 'Avg handle time', align: 'r' }
+		{ key: 'avg_handle_ms', label: 'Avg talk time', align: 'r' }
 	];
+
+	// Coverage column only where the server sends it (single-day team view) — it's
+	// the table twin of the chart's "no one available" shading.
+	const UNCOV_COL = { key: 'uncovered_seconds', label: 'No one available', align: 'r' } as const;
+	const hasUncovered = $derived(rows.some((r) => r.uncovered_seconds != null));
+	const cols = $derived(
+		hasUncovered ? [...BASE_COLS.slice(0, 5), UNCOV_COL, ...BASE_COLS.slice(5)] : BASE_COLS
+	);
 
 	let sortKey = $state<DailyKey>('day');
 	let sortDir = $state<'asc' | 'desc'>('asc');
@@ -46,7 +55,8 @@
 		return Math.max(1, toMin(rows[1].label ?? '') - toMin(rows[0].label ?? ''));
 	});
 	function sortVal(r: DailyRow, k: DailyKey): number | string | null {
-		return k === 'day' ? (r.label ?? r.day) : r[k];
+		// `?? null`: uncovered_seconds is optional — absent sorts last like other nulls.
+		return k === 'day' ? (r.label ?? r.day) : (r[k] ?? null);
 	}
 	function compare(a: DailyRow, b: DailyRow): number {
 		const av = sortVal(a, sortKey);
@@ -92,7 +102,7 @@
 		<table>
 			<thead>
 				<tr>
-					{#each COLS as c}
+					{#each cols as c}
 						<th class:r={c.align === 'r'} aria-sort={ariaSort(c.key)}>
 							<button type="button" class="th-btn" onclick={() => sortBy(c.key)}>
 								{c.key === 'day' && hourly ? 'Time' : c.label}{#if sortKey === c.key}<span class="caret">{sortDir === 'asc' ? '▲' : '▼'}</span>{/if}
@@ -116,6 +126,11 @@
 						<td class="r soft tabular">{fmtInt(r.calls_received)}</td>
 						<td class="r strong tabular">{fmtInt(r.calls_answered)}</td>
 						<td class="r faint tabular">{fmtInt(r.not_answered)}</td>
+						{#if hasUncovered}
+							<td class="r tabular" class:uncov={(r.uncovered_seconds ?? 0) >= 60} class:faint={(r.uncovered_seconds ?? 0) < 60}>
+								{fmtHoursMinutes(r.uncovered_seconds ?? 0)}
+							</td>
+						{/if}
 						<td class="r strong tabular" class:below={r.belowTarget}>
 							{#if r.belowTarget}<span class="bdot"></span>{/if}{fmtAnswerRate(r.answer_rate)}
 						</td>
@@ -242,6 +257,10 @@
 	}
 	td.below {
 		color: var(--amber);
+	}
+	td.uncov {
+		color: var(--danger);
+		font-weight: 600;
 	}
 	.bdot {
 		display: inline-block;

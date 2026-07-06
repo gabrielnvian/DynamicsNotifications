@@ -32,7 +32,9 @@ export function fmtTimeToAnswer(ms: number | null | undefined): string {
 }
 
 /** avg_handle_ms -> "Mm Ss" (SS zero-padded), e.g. 262000 -> "4m 22s"; "—" when null.
- *  Label this "handle time (incl. wrap-up)" — never "talk time". */
+ *  Label this "talk time": since extension v1.9 the measurement ends at HANG-UP
+ *  (presence flips back to Available), so after-call wrap-up is available time,
+ *  not part of the call. */
 export function fmtHandle(ms: number | null | undefined): string {
 	if (ms == null) return '—';
 	// Round to whole seconds FIRST, then split (see fmtHoursMinutes — avoids "1m 60s").

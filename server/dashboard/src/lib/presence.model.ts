@@ -27,10 +27,22 @@ export interface PresenceSpan {
 	end_ms: number;
 }
 
+// Team phone coverage: windows with ZERO operators in "available" while anyone was
+// on shift — calls landing there go straight to voicemail without ringing anyone,
+// so the call counters never see them. Staffed = first..last presence signal of the
+// day (any status); null when the day has no presence history (before 2026-07-04).
+export interface DayCoverage {
+	staffed_start_ms: number | null;
+	staffed_end_ms: number | null;
+	uncovered_seconds: number;
+	gaps: { start_ms: number; end_ms: number }[];
+}
+
 export interface PresenceTimelineResponse {
 	day: string;
 	start_ms: number; // local-midnight bounds of the day
 	end_ms: number;
+	coverage?: DayCoverage; // absent on older server builds
 	operators: {
 		first_name: string;
 		online_seconds: number;

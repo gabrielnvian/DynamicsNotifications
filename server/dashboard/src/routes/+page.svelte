@@ -23,6 +23,7 @@
 		fmtClock,
 		fmtHandle,
 		fmtHoursDecimal,
+		fmtHoursMinutes,
 		fmtInt,
 		fmtTimeToAnswer
 	} from '$lib/format.formatter';
@@ -142,6 +143,20 @@
 	const sHandleMin = $derived(days.map((d) => (d.avg_handle_ms == null ? null : d.avg_handle_ms / 60000)));
 	const sActiveH = $derived(days.map((d) => d.active_seconds / 3600));
 
+	// Coverage: time with ZERO operators available while anyone was on shift — those
+	// callers went to voicemail without ringing, so the call counts above can't see
+	// them. Slot series from /v1/metrics; the day total from the timeline's coverage
+	// (same gap set, so the two always agree). null total = no presence history
+	// (before 2026-07-04) → "—", not a false zero.
+	const sUncovered = $derived(
+		days.some((d) => d.uncovered_seconds != null) ? days.map((d) => d.uncovered_seconds ?? 0) : null
+	);
+	const sUncoveredMin = $derived(sUncovered ? sUncovered.map((s) => s / 60) : []);
+	const coverage = $derived(timeline?.coverage ?? null);
+	const uncoveredTotal = $derived(
+		coverage && coverage.staffed_start_ms != null ? coverage.uncovered_seconds : null
+	);
+
 	// On shift = operators currently taking calls (available / on a call), of those reporting.
 	const onShift = $derived(
 		isToday && presence
@@ -182,7 +197,7 @@
 			<Skeleton height="212px" radius="20px" />
 		</div>
 		<div class="kpirow">
-			{#each Array(5) as _}<Skeleton height="116px" radius="16px" />{/each}
+			{#each Array(6) as _}<Skeleton height="116px" radius="16px" />{/each}
 		</div>
 		<div class="charts">
 			<Skeleton height="252px" radius="18px" />
@@ -216,6 +231,9 @@
 				operatorCount={rosterCount}
 				belowTarget={team.answer_rate != null && team.answer_rate < prefs.answerTarget}
 				{targetPct}
+				uncovered={uncoveredTotal != null && uncoveredTotal >= 300
+					? fmtHoursMinutes(uncoveredTotal)
+					: null}
 			/>
 		</div>
 
@@ -225,14 +243,27 @@
 				value={fmtInt(Math.max(0, team.calls_received - team.calls_answered))}
 				series={sMissed}
 			/>
+			<KpiCard
+				label="No one available"
+				value={uncoveredTotal == null ? '—' : fmtHoursMinutes(uncoveredTotal)}
+				sub={uncoveredTotal == null ? 'no presence history' : 'callers reach voicemail'}
+				series={sUncoveredMin}
+				sparkColor="var(--danger)"
+			/>
 			<KpiCard label="Answer rate" value={fmtAnswerRate(team.answer_rate)} series={sAnswerPct} yMax={100} />
 			<KpiCard label="Avg time to answer" value={fmtTimeToAnswer(team.avg_time_to_answer_ms)} series={sTtaSec} />
-			<KpiCard label="Avg handle" value={fmtHandle(team.avg_handle_ms)} series={sHandleMin} />
+			<KpiCard label="Avg talk time" value={fmtHandle(team.avg_handle_ms)} series={sHandleMin} />
 			<KpiCard label="Active hours" value={fmtHoursDecimal(team.active_seconds)} series={sActiveH} />
 		</div>
 
 		<div class="charts">
-			<BandChart answered={sAnswered} received={sReceived} {labels} subtitle={`per hour · ${dayLabel}`} />
+			<BandChart
+				answered={sAnswered}
+				received={sReceived}
+				{labels}
+				uncovered={sUncovered}
+				subtitle={`per hour · ${dayLabel}`}
+			/>
 			<TrendChart
 				title="Answer rate"
 				subtitle="percent per hour"
@@ -242,7 +273,11 @@
 				fmt={(v) => `${Math.round(v)}%`}
 				target={targetPct}
 				targetLabel={`${targetPct}% target`}
-				detail={(i) => `${sAnswered[i]} of ${sReceived[i]} answered`}
+				detail={(i) =>
+					`${sAnswered[i]} of ${sReceived[i]} answered` +
+					(sUncovered && sUncovered[i] >= 60
+						? ` · no one available ${fmtHoursMinutes(sUncovered[i])}`
+						: '')}
 			/>
 		</div>
 		{#if lateSync}
@@ -267,6 +302,7 @@
 				subtitle={`exact status timeline · ${dayLabel} · click a row for detail`}
 				start_ms={timeline.start_ms}
 				end_ms={timeline.end_ms}
+				coverage={timeline.coverage ?? null}
 				operators={timeline.operators}
 			/>
 		{/if}
@@ -304,7 +340,7 @@
 	}
 	.kpirow {
 		display: grid;
-		grid-template-columns: repeat(5, 1fr);
+		grid-template-columns: repeat(6, 1fr);
 		gap: 14px;
 	}
 	.charts {

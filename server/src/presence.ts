@@ -123,27 +123,140 @@ function spansOverlapping(db: Database, startMs: number, endMs: number, name?: s
     .all(...params) as SpanRow[];
 }
 
+/** Merge [start,end] ms intervals into a sorted, non-overlapping union. */
+function unionIntervals(iv: Array<[number, number]>): Array<[number, number]> {
+  if (iv.length === 0) return [];
+  iv.sort((a, b) => a[0] - b[0]);
+
+  const out: Array<[number, number]> = [[iv[0][0], iv[0][1]]];
+  for (let i = 1; i < iv.length; i++) {
+    const [s, e] = iv[i];
+    const last = out[out.length - 1];
+    if (s > last[1]) out.push([s, e]);
+    else if (e > last[1]) last[1] = e;
+  }
+
+  return out;
+}
+
 /** Seconds covered by the UNION of [start,end] ms intervals — the same person signed
  *  in on two stations at once must not double-count. */
 function unionSeconds(iv: Array<[number, number]>): number {
-  if (iv.length === 0) return 0;
-  iv.sort((a, b) => a[0] - b[0]);
+  const total = unionIntervals(iv).reduce((a, [s, e]) => a + (e - s), 0);
+  return Math.round(total / 1000);
+}
 
-  let total = 0;
-  let [curS, curE] = iv[0];
-  for (let i = 1; i < iv.length; i++) {
-    const [s, e] = iv[i];
-    if (s > curE) {
-      total += curE - curS;
-      curS = s;
-      curE = e;
-    } else if (e > curE) {
-      curE = e;
+export interface CoverageGap {
+  start_ms: number;
+  end_ms: number;
+}
+
+export interface DayCoverage {
+  staffed_start_ms: number | null; // first..last presence signal of the day (any status)
+  staffed_end_ms: number | null; // null when the day has no presence history at all
+  uncovered_seconds: number; // Σ gaps
+  gaps: CoverageGap[];
+}
+
+/** Phone coverage for one server-local day. "Covered" = at least ONE operator in the
+ *  "available" status — only they get routed a new call; when everyone is on_call /
+ *  away (incl. Dynamics "Busy") / offline, callers go straight to voicemail without
+ *  ringing anyone, so the call events never see them. The gaps are the zero-available
+ *  windows inside the STAFFED window (first..last presence signal of the day, any
+ *  status). Before the first sign-in / after the last sign-off we can't tell a
+ *  coverage failure from the office simply being closed, so those edges are excluded
+ *  rather than guessed. */
+export function dayCoverage(db: Database, day: string): DayCoverage {
+  const { start, end } = dayBoundsMs(day);
+  const rows = spansOverlapping(db, start, end);
+  if (rows.length === 0) {
+    return { staffed_start_ms: null, staffed_end_ms: null, uncovered_seconds: 0, gaps: [] };
+  }
+
+  const byOp = new Map<string, TimelineSpan[]>();
+  for (const r of rows) {
+    const clipped = {
+      status: r.status,
+      start_ms: Math.max(r.started_at, start),
+      end_ms: Math.min(r.last_beat, end),
+    };
+    if (clipped.end_ms < clipped.start_ms) continue;
+    const list = byOp.get(r.first_name);
+    if (list) list.push(clipped);
+    else byOp.set(r.first_name, [clipped]);
+  }
+
+  // Resolve each PERSON to one status per instant first (a second station can say
+  // "available" while they're actually on a call — most-present wins, same rule as
+  // the timeline), then union the truly-available intervals across people.
+  const flat = [...byOp.values()].map((spans) =>
+    flattenSpans(spans.sort((a, b) => a.start_ms - b.start_ms)),
+  );
+
+  const all = flat.flat();
+  const staffedStart = Math.min(...all.map((s) => s.start_ms));
+  const staffedEnd = Math.max(...all.map((s) => s.end_ms));
+
+  const avail = unionIntervals(
+    all
+      .filter((s) => s.status === "available" && s.end_ms > s.start_ms)
+      .map((s) => [s.start_ms, s.end_ms] as [number, number]),
+  );
+
+  // A status flip leaves a beat-interval hole between the old span's last beat and
+  // the new span's first (5s foreground / up to 60s background cadence) — counting
+  // those as "nobody available" would add a phantom minute per transition. Only a
+  // hole of a full minute or more is a real coverage gap.
+  const MIN_GAP_MS = 60_000;
+
+  const gaps: CoverageGap[] = [];
+  let cursor = staffedStart;
+  for (const [s, e] of avail) {
+    if (s - cursor >= MIN_GAP_MS) gaps.push({ start_ms: cursor, end_ms: s });
+    cursor = Math.max(cursor, e);
+  }
+  if (staffedEnd - cursor >= MIN_GAP_MS) gaps.push({ start_ms: cursor, end_ms: staffedEnd });
+
+  const uncovered = Math.round(gaps.reduce((a, g) => a + (g.end_ms - g.start_ms), 0) / 1000);
+  return {
+    staffed_start_ms: staffedStart,
+    staffed_end_ms: staffedEnd,
+    uncovered_seconds: uncovered,
+    gaps,
+  };
+}
+
+/** Split coverage gaps into intraday slot buckets → seconds per slot index. Slots are
+ *  wall-clock minutes-since-midnight / slotMin — the SAME bucketing as the metrics
+ *  slot queries (slotExpr), so the two stay aligned even across a DST change. */
+export function gapSecondsBySlot(gaps: CoverageGap[], slotMin: number): Map<number, number> {
+  const bySlot = new Map<number, number>();
+  for (const g of gaps) {
+    let t = g.start_ms;
+    while (t < g.end_ms) {
+      const d = new Date(t);
+      const slot = Math.floor((d.getHours() * 60 + d.getMinutes()) / slotMin);
+      const slotEnd = new Date(
+        d.getFullYear(),
+        d.getMonth(),
+        d.getDate(),
+        0,
+        (slot + 1) * slotMin,
+      ).getTime();
+      if (slotEnd <= t) {
+        // Wall-clock repeat (DST fall-back): dump the remainder here rather than loop.
+        bySlot.set(slot, (bySlot.get(slot) ?? 0) + (g.end_ms - t) / 1000);
+        break;
+      }
+      const e = Math.min(g.end_ms, slotEnd);
+      bySlot.set(slot, (bySlot.get(slot) ?? 0) + (e - t) / 1000);
+      t = e;
     }
   }
-  total += curE - curS;
 
-  return Math.round(total / 1000);
+  // Round once at the end so a gap split across slots doesn't accumulate drift.
+  for (const [k, v] of bySlot) bySlot.set(k, Math.round(v));
+  return bySlot;
 }
 
 const MAX_SUMMARY_DAYS = 1000; // same sanity cap as the metrics densify
