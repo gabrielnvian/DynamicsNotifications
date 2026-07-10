@@ -253,9 +253,10 @@
           return;
         }
 
-        // Phone icon gone — popup changed to a non-call state (e.g. "disconnected")
-        const phoneIcon = popup.querySelector('img[src*="phonecallicon"]');
-        if (!phoneIcon) {
+        // No longer an incoming-call popup — it changed to a non-call state (e.g.
+        // "disconnected"), or for a callback the header stopped matching. Same stop
+        // condition for voice and callback (was: phone-icon-gone only).
+        if (!isIncomingCallPopup(popup)) {
           stopAllAlerts();
           return;
         }
@@ -329,10 +330,18 @@
   }
 
   // ── DOM Observation ───────────────────────────────────────────────────
-  function isPhoneCallPopup(element) {
+  // A #popupNotificationRoot we should treat as an incoming call — for BOTH the
+  // alert feature and the Team Metrics logger (both call this). Voice calls carry
+  // the phone-call icon; a CALLBACK (header e.g. "Callback for Help Desk") is the
+  // same ring flow but renders a different icon, so match the header text too —
+  // that's why callbacks were never logged as calls (detection keyed on the icon
+  // alone, not the text). NOTE: the callback icon/DOM is pending a live capture
+  // (nomad); the /callback/i text match covers it whether or not an icon exists.
+  function isIncomingCallPopup(element) {
     if (!element || element.id !== 'popupNotificationRoot') return false;
-    const img = element.querySelector('img[src*="phonecallicon"]');
-    return !!img;
+    if (element.querySelector('img[src*="phonecallicon"]')) return true;
+    const header = element.querySelector('#popupNotificationHeaderText')?.textContent || '';
+    return /callback/i.test(header);
   }
 
   function checkForPopup() {
@@ -351,8 +360,8 @@
       return;
     }
 
-    // Popup exists — check if it's a phone call we should alert for
-    if (!alertsActive && isPhoneCallPopup(popup)) {
+    // Popup exists — check if it's an incoming call (voice or callback) to alert for
+    if (!alertsActive && isIncomingCallPopup(popup)) {
       const headerText = popup.querySelector('#popupNotificationHeaderText')?.textContent?.trim() || 'Incoming Call';
 
       // If this is the same call we already dismissed, skip it
@@ -652,8 +661,7 @@
     }
     function checkCalls() {
       const popup = document.querySelector('#popupNotificationRoot');
-      const isCall = popup && popup.querySelector('img[src*="phonecallicon"]');
-      if (isCall) onRing(popup);
+      if (isIncomingCallPopup(popup)) onRing(popup);
       else if (!popup && ringKey) clearRing();   // ring notification dismissed → re-arm for next call
     }
 
