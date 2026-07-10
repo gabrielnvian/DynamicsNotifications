@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { loadConfig } from "./config.ts";
 import { openDb } from "./db.ts";
 import { ingest, validateEnvelope } from "./ingest.ts";
-import { daily, dailyFlat, summary } from "./metrics.ts";
+import { daily, dailyFlat, missedCallTimes, summary } from "./metrics.ts";
 import type { Database } from "bun:sqlite";
 
 const cfg = loadConfig({});
@@ -121,5 +121,21 @@ test("single-day team slots carry uncovered_seconds and widen to the staffed win
   // Per-operator series never carries the team coverage field.
   const op = daily(db, "2026-06-15", "2026-06-15", "Ada");
   expect(op.days.every((p) => p.uncovered_seconds === undefined)).toBe(true);
+  db.close();
+});
+
+test("missed markers pair an answer to the MOST RECENT ring (re-offer, not oldest)", () => {
+  const db = openDb(":memory:");
+  const day = "2026-06-20";
+  const at = (h: number, m: number, s = 0) => new Date(2026, 5, 20, h, m, s).getTime();
+  // gvian's case: one call re-offered 5×; rings 1–4 rung through, the 5th picked up.
+  // Expect exactly 4 missed markers on rings 1–4 — NOT the 5th (which is on-call).
+  // Oldest-first pairing would have orphaned the 5th (returning rings 2–5).
+  for (let k = 0; k < 5; k++) {
+    feed(db, "Ada", [{ event_id: `aaaa010${k}`, type: "call_received", day }], at(9, k));
+  }
+  feed(db, "Ada", [{ event_id: "aaaa0105", type: "call_answered", day, time_to_answer_ms: 3000 }], at(9, 4, 3));
+
+  expect(missedCallTimes(db, day).get("Ada")).toEqual([at(9, 0), at(9, 1), at(9, 2), at(9, 3)]);
   db.close();
 });

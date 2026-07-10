@@ -211,10 +211,11 @@ test("missedCallTimes pairs rings with the next answer; leftovers are the misses
   ev.run("m3", "call_received", at(10, 5)); // never answered → missed
   ev.run("m4", "call_received", at(11, 0)); // ring, then a second ring, one answer
   ev.run("m5", "call_received", at(11, 0, 30));
-  ev.run("m6", "call_answered", at(11, 1)); // pairs with the OLDEST ring (11:00)
+  ev.run("m6", "call_answered", at(11, 1)); // pairs with the ring accepted = MOST RECENT (11:00:30)
 
   const missed = missedCallTimes(db, "2026-06-15");
-  expect(missed.get("Luna")).toEqual([at(10, 5), at(11, 0, 30)]);
+  // 11:00:30 was the offer answered (most-recent before pickup); 11:00 is the miss.
+  expect(missed.get("Luna")).toEqual([at(10, 5), at(11, 0)]);
   db.close();
 });
 

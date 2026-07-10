@@ -441,9 +441,12 @@ export function intradayByOperator(
 }
 
 /** Ring timestamps that never got picked up, per operator, for one local day.
- *  Events aren't linked, so rings pair greedily with the operator's next answer
- *  within the TTA cap (oldest ring first); leftover rings are the missed calls —
- *  per day and operator the count matches received − answered. Drives the
+ *  Events aren't linked, so each answer pairs with the operator's MOST RECENT
+ *  unpaired ring within the TTA cap — an agent accepts the offer that's ringing
+ *  now. Omnichannel re-offers an unanswered call as a fresh ring, so a call
+ *  answered on (say) the 5th offer must leave offers 1–4 as missed and mark the
+ *  5th answered — NOT the reverse. Leftover rings are the missed calls; per day
+ *  and operator the count still matches received − answered. Drives the
  *  timeline's missed-call markers. */
 export function missedCallTimes(db: Database, day: string): Map<string, number[]> {
   const TTA_CAP_MS = 600_000; // ingest rejects time_to_answer_ms above this, so an answer can't belong to an older ring
@@ -473,8 +476,17 @@ export function missedCallTimes(db: Database, day: string): Map<string, number[]
     if (r.type === "call_received") {
       pending.push(r.at);
     } else {
-      const i = pending.findIndex((t) => r.at >= t && r.at - t <= TTA_CAP_MS);
-      if (i >= 0) pending.splice(i, 1);
+      // Most-recent unpaired ring within the cap, not the oldest: the operator
+      // accepts the offer ringing now. Oldest-first orphaned the accepted offer as
+      // "missed" right at the pickup (4 ring-throughs then a pickup on the 5th would
+      // leave the 5th marked missed instead of 1–4). pending is in received_at order,
+      // so scan from the end for the newest ring at//before the answer.
+      for (let i = pending.length - 1; i >= 0; i--) {
+        if (r.at >= pending[i] && r.at - pending[i] <= TTA_CAP_MS) {
+          pending.splice(i, 1);
+          break;
+        }
+      }
     }
   }
   flush(cur);
