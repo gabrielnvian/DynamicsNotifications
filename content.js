@@ -331,15 +331,15 @@
 
   // ── DOM Observation ───────────────────────────────────────────────────
   // A #popupNotificationRoot we should treat as an incoming call — for BOTH the
-  // alert feature and the Team Metrics logger (both call this). Voice calls carry
-  // the phone-call icon; a CALLBACK (header e.g. "Callback for Help Desk") is the
-  // same ring flow but renders a different icon, so match the header text too —
-  // that's why callbacks were never logged as calls (detection keyed on the icon
-  // alone, not the text). NOTE: the callback icon/DOM is pending a live capture
-  // (nomad); the /callback/i text match covers it whether or not an icon exists.
+  // alert feature and the Team Metrics logger (both call this). Confirmed live
+  // (nomad recon, 2026-07-10): a voice call renders phonecallicon.svg (header
+  // "Call for Help Desk"); a CALLBACK renders callbackicon.svg (header "Callback
+  // for Help Desk") and has NO phone icon — which is why callbacks were never
+  // logged (detection keyed on phonecallicon alone). Match BOTH icons; header
+  // /callback/i as a fallback in case the icon set changes or is localized.
   function isIncomingCallPopup(element) {
     if (!element || element.id !== 'popupNotificationRoot') return false;
-    if (element.querySelector('img[src*="phonecallicon"]')) return true;
+    if (element.querySelector('img[src*="phonecallicon"], img[src*="callbackicon"]')) return true;
     const header = element.querySelector('#popupNotificationHeaderText')?.textContent || '';
     return /callback/i.test(header);
   }
