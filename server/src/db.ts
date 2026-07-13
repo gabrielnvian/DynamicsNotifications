@@ -37,7 +37,8 @@ function migrate(db: Database): void {
       available_seconds INTEGER,
       time_to_answer_ms INTEGER,
       handle_ms         INTEGER,
-      received_at       INTEGER NOT NULL
+      received_at       INTEGER NOT NULL,  -- server receipt (flush) time; batch-quantized
+      occurred_at       INTEGER            -- client event time; preferred for timing (nullable: absent on old clients/rows)
     );
 
     -- Incremental per-operator-per-day rollup. Stores SUM + COUNT (not averages)
@@ -97,6 +98,7 @@ function migrate(db: Database): void {
   for (const stmt of [
     "ALTER TABLE presence ADD COLUMN last_online_ms INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE operators ADD COLUMN last_agent TEXT",
+    "ALTER TABLE raw_events ADD COLUMN occurred_at INTEGER",
   ]) {
     try {
       db.exec(stmt);

@@ -139,3 +139,29 @@ test("missed markers pair an answer to the MOST RECENT ring (re-offer, not oldes
   expect(missedCallTimes(db, day).get("Ada")).toEqual([at(9, 0), at(9, 1), at(9, 2), at(9, 3)]);
   db.close();
 });
+
+test("occurred_at (client event time) drives bucketing + pairing, not received_at (flush)", () => {
+  const db = openDb(":memory:");
+  const day = "2026-06-25";
+  const occ = (h: number, m: number) => new Date(2026, 5, 25, h, m).getTime();
+  const flushLate = occ(23, 30); // whole batch flushed late; occurred_at is the real time
+  feed(
+    db,
+    "Ada",
+    [
+      { event_id: "aaaa0201", type: "call_received", day, occurred_at: occ(9, 0) },
+      { event_id: "aaaa0202", type: "call_received", day, occurred_at: occ(9, 3) },
+      { event_id: "aaaa0203", type: "call_answered", day, occurred_at: occ(9, 5), time_to_answer_ms: 3000 },
+    ],
+    flushLate,
+  );
+
+  // Intraday slots bucket by occurred_at (09:00), not the 23:30 flush hour.
+  const d = daily(db, day, day);
+  expect(d.days.some((p) => p.label === "09:00")).toBe(true);
+  expect(d.days.every((p) => p.label !== "23:00")).toBe(true);
+
+  // Pairing runs on occurred_at: answer (9:05) pairs the 9:03 ring, leaving 9:00 missed.
+  expect(missedCallTimes(db, day).get("Ada")).toEqual([occ(9, 0)]);
+  db.close();
+});

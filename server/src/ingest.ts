@@ -14,11 +14,12 @@ const ENVELOPE_KEYS = new Set([
   "sentAt",
   "events",
 ]);
+// occurred_at (client event epoch ms) is allowed on every event type.
 const EVENT_KEYS: Record<EventType, Set<string>> = {
-  available_tick: new Set(["event_id", "type", "day", "available_seconds"]),
-  call_received: new Set(["event_id", "type", "day"]),
-  call_answered: new Set(["event_id", "type", "day", "time_to_answer_ms"]),
-  call_ended: new Set(["event_id", "type", "day", "handle_ms"]),
+  available_tick: new Set(["event_id", "type", "day", "occurred_at", "available_seconds"]),
+  call_received: new Set(["event_id", "type", "day", "occurred_at"]),
+  call_answered: new Set(["event_id", "type", "day", "occurred_at", "time_to_answer_ms"]),
+  call_ended: new Set(["event_id", "type", "day", "occurred_at", "handle_ms"]),
 };
 const TYPES = new Set<EventType>([
   "available_tick",
@@ -136,6 +137,9 @@ function validateEvent(e: unknown): ValidationErr | null {
   if (typeof e.day !== "string" || !DAY_RE.test(e.day) || !validDay(e.day)) {
     return err("invalid day");
   }
+  if (e.occurred_at !== undefined && !isIntInRange(e.occurred_at, 0, 9e15)) {
+    return err("invalid occurred_at");
+  }
   if (type === "available_tick") {
     if (!isIntInRange(e.available_seconds, 1, 86400)) {
       return err("invalid available_seconds");
@@ -171,8 +175,8 @@ export function ingest(db: Database, env: Envelope, now: number): FoldResult {
   );
   const insEvent = db.query(
     `INSERT OR IGNORE INTO raw_events
-       (event_id, operator_id, day, type, available_seconds, time_to_answer_ms, handle_ms, received_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (event_id, operator_id, day, type, available_seconds, time_to_answer_ms, handle_ms, received_at, occurred_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const upAgg = db.query(
     `INSERT INTO daily_aggregates
@@ -206,6 +210,7 @@ export function ingest(db: Database, env: Envelope, now: number): FoldResult {
         e.time_to_answer_ms ?? null,
         e.handle_ms ?? null,
         now,
+        e.occurred_at ?? null,
       );
       if (r.changes === 0) {
         duplicates++;

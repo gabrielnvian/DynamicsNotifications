@@ -76,8 +76,11 @@ export function withLock(fn) {
 }
 
 // ── Allowlist builders (the ONLY place payload keys are constructed) ───────
-export function buildEvent(type, day, extra = {}) {
-  const e = { event_id: crypto.randomUUID(), type, day };
+// occurredAt = when the event actually happened (epoch ms), sent so the server can
+// bucket/pair on the true event time instead of the batched flush time. Defaults to
+// now for safety, but callers pass the real event moment.
+export function buildEvent(type, day, extra = {}, occurredAt = Date.now()) {
+  const e = { event_id: crypto.randomUUID(), type, day, occurred_at: clampInt(occurredAt, 0, 9e15) };
   if (type === "available_tick") e.available_seconds = clampInt(extra.available_seconds, 1, 86400);
   else if (type === "call_answered") e.time_to_answer_ms = clampInt(extra.time_to_answer_ms, 0, 600000);
   else if (type === "call_ended") e.handle_ms = clampInt(extra.handle_ms, 0, 86400000);
@@ -136,13 +139,13 @@ export async function sweepOld(now = Date.now()) {
 
 // ── Call metric recorders (called from background message handlers) ────────
 export async function recordCallReceived(now = Date.now()) {
-  await enqueue(buildEvent("call_received", localDay(now)));
+  await enqueue(buildEvent("call_received", localDay(now), {}, now));
 }
 export async function recordCallAnswered(ttaMs, now = Date.now()) {
-  await enqueue(buildEvent("call_answered", localDay(now), { time_to_answer_ms: ttaMs }));
+  await enqueue(buildEvent("call_answered", localDay(now), { time_to_answer_ms: ttaMs }, now));
 }
 export async function recordCallEnded(handleMs, now = Date.now()) {
-  await enqueue(buildEvent("call_ended", localDay(now), { handle_ms: handleMs }));
+  await enqueue(buildEvent("call_ended", localDay(now), { handle_ms: handleMs }, now));
 }
 
 // ── Availability clock (only ever credits "available" seconds) ─────────────
@@ -178,7 +181,7 @@ export async function tickIfAvailable(now = Date.now()) {
     const stop = Math.min(now, localMidnightAfter(c));
     const secs = Math.round((stop - c) / 1000);
     if (secs >= 1) {
-      await enqueue(buildEvent("available_tick", localDay(c), { available_seconds: secs }));
+      await enqueue(buildEvent("available_tick", localDay(c), { available_seconds: secs }, c));
     }
     c = stop;
   }

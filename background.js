@@ -433,10 +433,16 @@ async function handleMetricMessage(message) {
         updateMetricsInput({ presence: message.available ? 'available' : 'other' }, now),
       );
       await pushPresence(now);
+      // A status change is a natural sync point: flush the pending event queue now so
+      // the server sees the run of calls that led up to this transition promptly (with
+      // their occurred_at times), instead of waiting out the 1-min batch alarm. Best
+      // effort — respects backoff, no-op if nothing queued.
+      metrics.flush();
       break;
     case 'METRIC_CALL_STATE':
       await metrics.withLock(() => updateMetricsInput({ inCall: !!message.inCall }, now));
       await pushPresence(now);
+      metrics.flush(); // same as above — on-call ↔ off-call is a status change
       break;
     case 'METRIC_CALL_RECEIVED':
       await metrics.withLock(() => metrics.recordCallReceived(now));

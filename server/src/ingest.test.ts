@@ -196,6 +196,24 @@ test("late-flushed events stay in daily totals but out of the hourly buckets", (
   db.close();
 });
 
+test("occurred_at is accepted when a valid int and rejected otherwise", () => {
+  const ok = validateEnvelope(
+    envelope({
+      events: [{ event_id: "e1aaaaaa", type: "call_received", day: "2026-06-01", occurred_at: 1781000000000 }],
+    }),
+    cfg,
+  );
+  expect(ok.ok).toBe(true);
+
+  const bad = validateEnvelope(
+    envelope({
+      events: [{ event_id: "e1aaaaaa", type: "call_received", day: "2026-06-01", occurred_at: "nope" }],
+    }),
+    cfg,
+  );
+  expect(bad.ok).toBe(false);
+});
+
 test("missedCallTimes pairs rings with the next answer; leftovers are the misses", () => {
   const db = openDb(":memory:");
   const at = (h: number, m: number, s = 0) => new Date(2026, 5, 15, h, m, s).getTime();

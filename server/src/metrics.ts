@@ -93,13 +93,18 @@ function densifyDays(rows: DailyPoint[], from: string, to: string): DailyPoint[]
   return out;
 }
 
-// Intraday charts bucket by the LOCAL HOUR OF RECEIPT, which is only honest for
-// events that arrived on the day they happened. The extension queues offline for up
-// to 7 days — a late-flushed batch would otherwise land at the flush hour (possibly
-// on a different calendar day's clock) instead of the call's hour. Late events stay
-// in the daily totals (keyed on the client `day`); they are only excluded here.
-const SAME_DAY_RECEIPT =
-  "date(e.received_at / 1000, 'unixepoch', 'localtime') = e.day";
+// The timestamp used for intraday bucketing + ring/answer pairing: the client's
+// actual occurred_at when present (exact event time), else the server received_at
+// (flush time, batch-quantized). One expression so every timing path agrees.
+const EVENT_TIME = "COALESCE(e.occurred_at, e.received_at)";
+
+// Intraday charts bucket by the LOCAL HOUR the event happened. With occurred_at this
+// is the true hour even for a late-flushed batch; without it we fall back to receipt
+// time, so an offline-queued batch (up to 7 days) could land at the flush hour on a
+// different calendar day — those are excluded here (they still count in the daily
+// totals, which key on the client `day`). Events carrying occurred_at are placed
+// honestly and pass this filter.
+const SAME_DAY_RECEIPT = `date(${EVENT_TIME} / 1000, 'unixepoch', 'localtime') = e.day`;
 
 export function listOperators(db: Database) {
   const operators = db
@@ -194,8 +199,8 @@ function slotLabel(slot: number, slotMin: number): string {
 // Minutes-since-local-midnight of receipt, integer-divided into slot indexes. The
 // process TZ decides "local" — set to Pacific in the service unit.
 function slotExpr(slotMin: number): string {
-  return `(CAST(strftime('%H', e.received_at / 1000, 'unixepoch', 'localtime') AS INTEGER) * 60
-         + CAST(strftime('%M', e.received_at / 1000, 'unixepoch', 'localtime') AS INTEGER)) / ${slotMin}`;
+  return `(CAST(strftime('%H', ${EVENT_TIME} / 1000, 'unixepoch', 'localtime') AS INTEGER) * 60
+         + CAST(strftime('%M', ${EVENT_TIME} / 1000, 'unixepoch', 'localtime') AS INTEGER)) / ${slotMin}`;
 }
 
 // Intraday buckets for one operator-local day, aggregated from raw_events by the local
@@ -452,11 +457,11 @@ export function missedCallTimes(db: Database, day: string): Map<string, number[]
   const TTA_CAP_MS = 600_000; // ingest rejects time_to_answer_ms above this, so an answer can't belong to an older ring
   const rows = db
     .query(
-      `SELECT o.first_name AS name, e.type AS type, e.received_at AS at
+      `SELECT o.first_name AS name, e.type AS type, ${EVENT_TIME} AS at
        FROM raw_events e JOIN operators o ON o.id = e.operator_id
        WHERE e.day = ? AND e.type IN ('call_received','call_answered')
          AND ${SAME_DAY_RECEIPT}
-       ORDER BY o.first_name, e.received_at`,
+       ORDER BY o.first_name, ${EVENT_TIME}`,
     )
     .all(day) as { name: string; type: string; at: number }[];
 

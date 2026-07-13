@@ -13,6 +13,9 @@ export interface RawEvent {
   event_id: string; // client-generated UUID; idempotent dedupe key
   type: EventType;
   day: string; // YYYY-MM-DD in the operator's LOCAL timezone
+  occurred_at?: number; // client epoch ms of the actual event; the server prefers
+  // this over received_at (flush time) for intraday bucketing + ring/answer pairing,
+  // so batching no longer smears event times. Absent on pre-timestamp clients.
   available_seconds?: number; // available_tick only (1..86400)
   time_to_answer_ms?: number; // call_answered only (0..600000)
   handle_ms?: number; // call_ended only (0..86400000)
