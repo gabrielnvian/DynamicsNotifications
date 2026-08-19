@@ -395,14 +395,21 @@
     return new Promise((resolve) => {
       const existing = document.querySelector(selector);
       if (existing) { resolve(existing); return; }
-      const start = Date.now();
-      const check = () => {
+      // rAF is paused in hidden tabs, and lock/unlock almost always happens with Dynamics
+      // in the background — so watch the DOM directly instead of polling on a frame callback
+      const observer = new MutationObserver(() => {
         const el = document.querySelector(selector);
-        if (el) { resolve(el); return; }
-        if (Date.now() - start > timeout) { resolve(null); return; }
-        requestAnimationFrame(check);
-      };
-      check();
+        if (!el) return;
+        clearTimeout(timer);
+        observer.disconnect();
+        resolve(el);
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+
+      const timer = setTimeout(() => {
+        observer.disconnect();
+        resolve(null);
+      }, timeout);
     });
   }
 
@@ -439,6 +446,12 @@
 
   const LOCK_STATUS = 'busy';
 
+  // Busy is only ever a downgrade from Available. Any other status (Do not disturb,
+  // Appear away, a custom status) was either set by Dynamics itself for capacity reasons
+  // (e.g. on a call, at full workload) or deliberately chosen by the agent, and its label
+  // doesn't map to a presencestatus-* data-id anyway, so it couldn't be restored on unlock.
+  const RESTORABLE_STATUS = 'available';
+
   async function handleLockSetPresence() {
     const { lockAutoPresence } = await chrome.storage.sync.get({ lockAutoPresence: true });
     if (!lockAutoPresence) return;
@@ -447,11 +460,16 @@
     if (!button) return;
 
     const current = button.getAttribute('aria-label')?.trim().toLowerCase();
-    if (!current || current === LOCK_STATUS) return;
+    if (current !== RESTORABLE_STATUS) return;
 
+    // savedPresence only exists if *we* set Busy on lock — the restore path keys off it,
+    // so a Busy the operator chose themselves is never touched
     await chrome.storage.session.set({ savedPresence: current });
     await changePresence(LOCK_STATUS);
   }
+
+  // Dynamics renders the presence button well after document_idle on a fresh load
+  const PRESENCE_BUTTON_LOAD_TIMEOUT_MS = 60_000;
 
   async function handleLockRestorePresence() {
     const { lockAutoPresence } = await chrome.storage.sync.get({ lockAutoPresence: true });
@@ -460,19 +478,29 @@
     const { savedPresence } = await chrome.storage.session.get('savedPresence');
     if (!savedPresence) return;
 
-    const button = document.querySelector(PRESENCE_BUTTON_SEL);
-    if (!button) { await chrome.storage.session.remove('savedPresence'); return; }
+    // Wait rather than bail: tabs auto-closed during the lock get reopened and restore on load
+    const button = await waitForElement(PRESENCE_BUTTON_SEL, PRESENCE_BUTTON_LOAD_TIMEOUT_MS);
+    if (!button) return;
 
     const current = button.getAttribute('aria-label')?.trim().toLowerCase();
+    // Empty label = status not loaded yet; keep savedPresence so a later load/unlock can still restore
+    if (!current) return;
+
     // Only restore if current status still matches the lock status — user may have changed it manually
     if (current !== LOCK_STATUS) {
       await chrome.storage.session.remove('savedPresence');
       return;
     }
 
-    await changePresence(savedPresence);
-    await chrome.storage.session.remove('savedPresence');
+    // Only clear savedPresence once the restore actually landed — otherwise a failed
+    // restore (e.g. the tab was still hidden) stays pending for the next unlock/load
+    const restored = await changePresence(savedPresence);
+    if (restored) await chrome.storage.session.remove('savedPresence');
   }
+
+  // Restore on load too: with auto-close enabled the tabs are gone by unlock time, so the
+  // LOCK_RESTORE_PRESENCE broadcast has no receiver and the reopened tab must pick it up itself
+  handleLockRestorePresence();
 
   // ── Team Metrics sensors (mandatory; fully decoupled from the alert path) ─
   // Emits METRIC_* messages only; background.js does all storage/delivery.

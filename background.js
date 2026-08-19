@@ -281,7 +281,6 @@ chrome.notifications.onClosed.addListener((notificationId, byUser) => {
 });
 
 // ── Lock/unlock presence handling ───────────────────────────────────────
-let wasLocked = false;
 let lockCloseTabsTimeout = null;
 const LOCK_CLOSE_TAB_DELAY_MS = 10_000;
 
@@ -312,7 +311,6 @@ chrome.idle.onStateChanged.addListener((state) => {
   metrics.withLock(() => updateMetricsInput({ idle: state })).then(() => pushPresence());
 
   if (state === 'locked') {
-    wasLocked = true;
     stopAll();
     broadcastToDynamicsTabs({ type: 'LOCK_SET_PRESENCE' });
 
@@ -324,8 +322,10 @@ chrome.idle.onStateChanged.addListener((state) => {
         closeAllDynamicsTabs();
       }, LOCK_CLOSE_TAB_DELAY_MS);
     });
-  } else if (state === 'active' && wasLocked) {
-    wasLocked = false;
+  } else if (state === 'active') {
+    // No "was locked" flag here on purpose: the service worker is usually terminated
+    // during a lock, so in-memory state is gone by unlock time. Both actions below are
+    // no-ops when nothing is pending (the content script only restores if savedPresence is set).
     cancelScheduledTabClose();
     broadcastToDynamicsTabs({ type: 'LOCK_RESTORE_PRESENCE' });
   }
