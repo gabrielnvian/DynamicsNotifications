@@ -280,6 +280,32 @@ chrome.notifications.onClosed.addListener((notificationId, byUser) => {
   if (byUser) stopAll();
 });
 
+// ── Single Dynamics session ─────────────────────────────────────────────
+// Two Omnichannel tabs mean two competing presence UIs, double call popups, and
+// (server-side) duplicate metric sensors — so when a second Dynamics tab commits a
+// navigation, close it and focus the tab that already holds the session.
+const DYNAMICS_URL_RE = /^https?://[^/]*.dynamics.com//;
+
+chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
+  // Fires on URL commit, so a duplicate is caught before Dynamics finishes booting
+  const url = info.url ?? (info.status === 'loading' ? tab.url : null);
+  if (!url || !DYNAMICS_URL_RE.test(url)) return;
+
+  chrome.storage.sync.get({ singleDynamicsTab: true }, ({ singleDynamicsTab }) => {
+    if (!singleDynamicsTab) return;
+
+    chrome.tabs.query({ url: '*://*.dynamics.com/*' }, (tabs) => {
+      const existing = tabs.find((t) => t.id !== tabId);
+      if (!existing) return;
+
+      chrome.tabs.remove(tabId).catch(() => {});
+      chrome.windows.update(existing.windowId, { focused: true }, () => {
+        chrome.tabs.update(existing.id, { active: true });
+      });
+    });
+  });
+});
+
 // ── Lock/unlock presence handling ───────────────────────────────────────
 let lockCloseTabsTimeout = null;
 const LOCK_CLOSE_TAB_DELAY_MS = 10_000;

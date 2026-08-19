@@ -3,7 +3,7 @@
 const SETTINGS_KEYS = [
   'enabled', 'volume', 'ringtone', 'alertSound', 'alertNotification', 'alertWindow',
   'alertVisualOverlay', 'alertFullscreenFlash', 'audioDeviceId',
-  'lockAutoPresence', 'lockCloseTabs'
+  'lockAutoPresence', 'lockCloseTabs', 'singleDynamicsTab'
 ];
 
 const DEFAULTS = {
@@ -17,7 +17,8 @@ const DEFAULTS = {
   alertFullscreenFlash: true,
   audioDeviceId: '',
   lockAutoPresence: true,
-  lockCloseTabs: true
+  lockCloseTabs: true,
+  singleDynamicsTab: true
 };
 
 // ── Load settings into UI ───────────────────────────────────────────────
@@ -34,6 +35,7 @@ chrome.storage.sync.get(DEFAULTS, (settings) => {
   document.getElementById('ringtone').value = settings.ringtone;
   document.getElementById('lockAutoPresence').checked = settings.lockAutoPresence;
   document.getElementById('lockCloseTabs').checked = settings.lockCloseTabs;
+  document.getElementById('singleDynamicsTab').checked = settings.singleDynamicsTab;
 
   loadAudioDevices(settings.audioDeviceId);
 });
