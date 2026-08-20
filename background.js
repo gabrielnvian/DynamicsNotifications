@@ -190,6 +190,15 @@ const STORE_EXTENSION_ID = 'cihpnpplmdkmolcflebkilgmjpclapij';
 
 let dormantDuplicate = false;
 
+// The MV3 service worker restarts on any event without onStartup firing, so in-memory
+// state resets constantly. Seed the flag from storage at module load (runs on every SW
+// start) and re-verify with a live ping — otherwise a dormant copy woken by an event
+// would double-count until the next alarm re-check.
+chrome.storage.local.get({ dormantDuplicate: false }, (v) => {
+  dormantDuplicate = v.dormantDuplicate;
+  checkDuplicateInstall();
+});
+
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
   if (message?.type === 'DYN_NOTIF_PING') sendResponse({ alive: true });
 });
