@@ -58,6 +58,14 @@
   }
 
   // ── State ─────────────────────────────────────────────────────────────
+  // Mirrors background's duplicate-install guard: when the Web Store copy is present,
+  // this (dev) copy must not render alerts or touch presence either.
+  let dormantDuplicate = false;
+  chrome.storage.local.get({ dormantDuplicate: false }, (v) => { dormantDuplicate = v.dormantDuplicate; });
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes.dormantDuplicate) dormantDuplicate = changes.dormantDuplicate.newValue;
+  });
+
   let metricsCheck = null; // set by the Team Metrics sensor block below
   let alertsActive = false;
   let dismissedCallHeader = null;
@@ -345,7 +353,7 @@
   }
 
   function checkForPopup() {
-    if (!contextValid || !settings.enabled) return;
+    if (!contextValid || !settings.enabled || dormantDuplicate) return;
 
     const popup = document.querySelector('#popupNotificationRoot');
 
@@ -453,6 +461,8 @@
   const RESTORABLE_STATUS = 'available';
 
   async function handleLockSetPresence() {
+    if (dormantDuplicate) return;
+
     const { lockAutoPresence } = await chrome.storage.sync.get({ lockAutoPresence: true });
     if (!lockAutoPresence) return;
 
@@ -472,6 +482,8 @@
   const PRESENCE_BUTTON_LOAD_TIMEOUT_MS = 60_000;
 
   async function handleLockRestorePresence() {
+    if (dormantDuplicate) return;
+
     const { lockAutoPresence } = await chrome.storage.sync.get({ lockAutoPresence: true });
     if (!lockAutoPresence) return;
 

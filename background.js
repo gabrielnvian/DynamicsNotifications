@@ -179,16 +179,58 @@ function focusDynamicsTab() {
   }
 }
 
+// ── Duplicate-install guard ─────────────────────────────────────────────
+// A dev (unpacked) copy running next to the force-installed Web Store copy means two
+// collectors double-reporting metrics and two sets of alerts (observed in prod as one
+// operator emitting under two agent versions). Rule: the store copy always runs; any
+// other install pings the store ID and goes fully dormant while it answers. Two
+// non-store copies can't see each other this way — acceptable, that pairing doesn't
+// occur under force-install policy.
+const STORE_EXTENSION_ID = 'cihpnpplmdkmolcflebkilgmjpclapij';
+
+let dormantDuplicate = false;
+
+chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
+  if (message?.type === 'DYN_NOTIF_PING') sendResponse({ alive: true });
+});
+
+async function checkDuplicateInstall() {
+  if (chrome.runtime.id === STORE_EXTENSION_ID) return;
+
+  let dormant = false;
+  try {
+    const reply = await chrome.runtime.sendMessage(STORE_EXTENSION_ID, { type: 'DYN_NOTIF_PING' });
+    dormant = !!reply?.alive;
+  } catch (_) {
+    dormant = false; // store copy absent or not answering — we are the active install
+  }
+
+  if (dormant === dormantDuplicate) return;
+  dormantDuplicate = dormant;
+  // storage.local so content scripts see the flag without a message round-trip
+  await chrome.storage.local.set({ dormantDuplicate: dormant });
+
+  if (dormant) {
+    stopAll();
+    // Close the availability clock so this install stops accruing available_seconds;
+    // the store copy owns all reporting from here on.
+    await metrics.withLock(() => metrics.setEffectiveAvailable(false));
+    console.warn('[Dynamics Notifications] Web Store install detected — this copy is now dormant');
+  } else {
+    await metrics.withLock(() => recomputeAvailability());
+  }
+}
+
 // ── Message Handling ────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.target === 'offscreen') return;
 
   if (message.type && message.type.startsWith('METRIC_')) {
-    handleMetricMessage(message);
+    if (!dormantDuplicate) handleMetricMessage(message);
     return false;
   }
 
-  if (message.type === 'CALL_DETECTED') {
+  if (message.type === 'CALL_DETECTED' && !dormantDuplicate) {
     callActive = true;
     callingTabId = sender.tab?.id ?? null;
     chrome.storage.session.set({ callingTabId });
@@ -334,6 +376,8 @@ function cancelScheduledTabClose() {
 }
 
 chrome.idle.onStateChanged.addListener((state) => {
+  if (dormantDuplicate) return;
+
   metrics.withLock(() => updateMetricsInput({ idle: state })).then(() => pushPresence());
 
   if (state === 'locked') {
@@ -385,6 +429,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 // ── Team Metrics wiring (mandatory; all logic in metrics.js) ──────────────
 function initMetrics() {
+  checkDuplicateInstall();
   chrome.alarms.create('metricsFlush', { periodInMinutes: 1 });
   metrics.ensureInstallId().catch(() => {});
   // Clear any stale inCall persisted in storage.local from a previous session
@@ -486,6 +531,11 @@ async function handleMetricMessage(message) {
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name !== 'metricsFlush') return;
   (async () => {
+    // Re-elect every minute: installing the store copy silences this one within ~60s,
+    // removing it revives this one just as fast.
+    await checkDuplicateInstall();
+    if (dormantDuplicate) return;
+
     await metrics.withLock(() => metrics.tickIfAvailable());
     await metrics.sweepOld();
     await metrics.flush();
@@ -498,6 +548,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 chrome.tabs.onRemoved.addListener(() => {
   (async () => {
+    if (dormantDuplicate) return;
+
     await metrics.withLock(() => recomputeAvailability());
     // Instant offline: when the LAST Dynamics tab closes, tell the server right away
     // (explicit "offline" beat) instead of waiting out the staleness window. Also clear
@@ -510,6 +562,6 @@ chrome.tabs.onRemoved.addListener(() => {
 });
 
 chrome.tabs.onUpdated.addListener((tabId, info) => {
-  if (info.status !== 'complete') return;
+  if (info.status !== 'complete' || dormantDuplicate) return;
   metrics.withLock(() => recomputeAvailability());
 });
