@@ -1,0 +1,15 @@
+{
+  "name": "dynamics-notifications",
+  "version": "1.10.0",
+  "private": true,
+  "description": "Chrome extension: Dynamics 365 Omnichannel call alerts + metrics",
+  "scripts": {
+    "build": "bun run scripts/build.ts",
+    "watch": "bun --watch run scripts/build.ts",
+    "zip": "bun run scripts/zip.ts",
+    "package": "bun run build && bun run zip"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.0"
+  }
+}
