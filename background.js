@@ -335,7 +335,7 @@ chrome.notifications.onClosed.addListener((notificationId, byUser) => {
 // Two Omnichannel tabs mean two competing presence UIs, double call popups, and
 // (server-side) duplicate metric sensors — so when a second Dynamics tab commits a
 // navigation, close it and focus the tab that already holds the session.
-const DYNAMICS_URL_RE = /^https?://[^/]*.dynamics.com//;
+const DYNAMICS_URL_RE = /^https?:\/\/[^/]*\.dynamics\.com\//;
 
 chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
   // Fires on URL commit, so a duplicate is caught before Dynamics finishes booting
