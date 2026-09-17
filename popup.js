@@ -51,6 +51,17 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'sync' && changes.metricsFirstName) showRecordingAs(changes.metricsFirstName.newValue);
 });
 
+// ── Remote kill switch — swap the controls for a notice while admin-disabled ─
+// `adminDisabled` is written to storage.local by kill-switch.js in the service worker.
+function showAdminDisabled(disabled) {
+  document.getElementById('adminDisabledNotice').hidden = !disabled;
+  document.getElementById('controls').hidden = disabled;
+}
+chrome.storage.local.get({ adminDisabled: false }, ({ adminDisabled }) => showAdminDisabled(adminDisabled));
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.adminDisabled) showAdminDisabled(changes.adminDisabled.newValue);
+});
+
 // ── Audio Device Enumeration (via offscreen document) ───────────────────
 function loadAudioDevices(selectedId) {
   // Retry a few times — offscreen doc may still be loading its script

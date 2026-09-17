@@ -1,6 +1,6 @@
 {
   "name": "dynamics-notifications",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "private": true,
   "description": "Chrome extension: Dynamics 365 Omnichannel call alerts + metrics",
   "scripts": {

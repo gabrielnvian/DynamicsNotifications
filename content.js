@@ -37,7 +37,9 @@
   let contextValid = true;
 
   function safeSendMessage(message) {
-    if (!contextValid) return;
+    // Admin-disabled installs report nothing — background gates too, but its flag may
+    // still be loading from storage right after a service-worker wake
+    if (!contextValid || adminDisabled) return;
     try {
       chrome.runtime.sendMessage(message).catch(() => { invalidateContext(); });
     } catch (_) {
@@ -64,6 +66,17 @@
   chrome.storage.local.get({ dormantDuplicate: false }, (v) => { dormantDuplicate = v.dormantDuplicate; });
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local' && changes.dormantDuplicate) dormantDuplicate = changes.dormantDuplicate.newValue;
+  });
+
+  // Remote kill switch verdict (written by kill-switch.js in the service worker)
+  let adminDisabled = false;
+  chrome.storage.local.get({ adminDisabled: false }, (v) => { adminDisabled = v.adminDisabled; });
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || !changes.adminDisabled) return;
+
+    adminDisabled = changes.adminDisabled.newValue;
+    // Background stops its own side; tear down any alert already on screen here
+    if (adminDisabled && alertsActive) stopAllAlerts(false);
   });
 
   let metricsCheck = null; // set by the Team Metrics sensor block below
@@ -353,7 +366,7 @@
   }
 
   function checkForPopup() {
-    if (!contextValid || !settings.enabled || dormantDuplicate) return;
+    if (!contextValid || !settings.enabled || dormantDuplicate || adminDisabled) return;
 
     const popup = document.querySelector('#popupNotificationRoot');
 
@@ -461,7 +474,7 @@
   const RESTORABLE_STATUS = 'available';
 
   async function handleLockSetPresence() {
-    if (dormantDuplicate) return;
+    if (dormantDuplicate || adminDisabled) return;
 
     const { lockAutoPresence } = await chrome.storage.sync.get({ lockAutoPresence: true });
     if (!lockAutoPresence) return;
@@ -482,7 +495,7 @@
   const PRESENCE_BUTTON_LOAD_TIMEOUT_MS = 60_000;
 
   async function handleLockRestorePresence() {
-    if (dormantDuplicate) return;
+    if (dormantDuplicate || adminDisabled) return;
 
     const { lockAutoPresence } = await chrome.storage.sync.get({ lockAutoPresence: true });
     if (!lockAutoPresence) return;
@@ -720,7 +733,7 @@
     // Ignore messages meant for other targets
     if (message.target) return false;
 
-    if (message.type === 'TEST_ALERTS') {
+    if (message.type === 'TEST_ALERTS' && !adminDisabled) {
       startAllAlerts('Test Call — Dynamics Notifications', true);
       setTimeout(() => stopAllAlerts(), 5000);
       sendResponse({ ok: true });

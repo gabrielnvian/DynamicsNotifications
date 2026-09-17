@@ -143,6 +143,14 @@ select {
   line-height: 1.4;
 }
 
+.admin-disabled {
+  padding: 16px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #666;
+  text-align: center;
+}
+
 .credits {
   margin-top: 12px;
   font-size: 11px;

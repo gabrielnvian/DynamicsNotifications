@@ -34,9 +34,10 @@ employer on company devices; not offered to the public.
 - **`storage`** — User preferences in `chrome.storage.sync` (volume, ringtone, audio output, alert toggles, lock behavior); buffer the metric-event queue, availability clock, and retry-backoff in `chrome.storage.local`; transient call/presence state in `chrome.storage.session`.
 - **`offscreen`** — MV3 service workers can't play audio or call `getUserMedia`. The offscreen document (`reasons: ['AUDIO_PLAYBACK','USER_MEDIA']`) plays the looping ringtone and enumerates audio output devices.
 - **`idle`** — Detect screen lock/idle (`onStateChanged`/`queryState`) to stop ringing on lock, optionally set Dynamics presence to Busy and auto-close Dynamics tabs, and set live status to "away" while locked. Only the locked/idle/active state is read — never keystrokes or content.
-- **`alarms`** — A single 1-minute periodic alarm that accrues availability seconds, flushes the buffered metric queue, sweeps stale events, and sends a presence keepalive.
+- **`alarms`** — A 1-minute periodic alarm that accrues availability seconds, flushes the buffered metric queue, sweeps stale events, and sends a presence keepalive; plus a 30-minute alarm (3-minute retry/confirmation) for the remote kill-switch DNS check.
 - **Host `*://*.dynamics.com/*`** — Inject the content script to detect the incoming-call popup and read the presence label, and to locate/focus/close the Dynamics tab via host-scoped `chrome.tabs.query`. No broad `tabs` permission is requested.
-- **Host `https://dynops.tail068f9.ts.net/*`** — The single organization-controlled endpoint. POSTs metrics to `/v1/events` and presence to `/v1/presence` over HTTPS. The only network origin contacted.
+- **Host `https://dynops.tail068f9.ts.net/*`** — The single organization-controlled endpoint. POSTs metrics to `/v1/events` and presence to `/v1/presence` over HTTPS. The only origin that receives extension data.
+- **Host `https://dns.google/*`** — Remote kill switch: every 30 minutes the service worker GETs `https://dns.google/resolve?name=sth-check.viancorp.net&type=TXT`. If the administrator's TXT record is present (confirmed on a re-check 3 minutes later) the extension disables itself and the popup shows "Disabled by admin". The request carries only that fixed hostname — no user data.
 - **Microphone (runtime `getUserMedia`, not a manifest permission)** — Chrome only reveals audio-*output* device labels after a mic grant. The offscreen document opens an audio stream **only when the operator opens the audio-output picker**, solely to populate the speaker list, then immediately stops every track. No audio is ever recorded, listened to, buffered, or transmitted. Surfaced to the user in the popup.
 
 ## 3. Data safety / privacy practices
@@ -65,7 +66,7 @@ employer on company devices; not offered to the public.
 - **Microphone** is a runtime `getUserMedia` grant from the offscreen document, requested **only when the operator opens the audio-output picker**, used solely to unlock output-device *labels*; the stream is stopped immediately and no audio is captured.
 - **Tab focus/close** uses host-permission-scoped `chrome.tabs.query` — **no broad `tabs` permission**.
 - **Live-call handle-time + `on_call` status are gated OFF** in this build (`CALL_TRACKING_ENABLED = false`); v1.7 emits only call-received / answered (time-to-answer) / availability ticks / `available`+`away` status. Handle time is listed as "a later version" in the disclosure to match.
-- **No remote code, no eval, no third-party calls.** The only non-HTTPS fetches are `chrome.runtime.getURL()` loads of the bundled ringtone MP3s.
+- **No remote code, no eval, no third-party calls** other than the kill-switch DNS-over-HTTPS lookup to `dns.google` (fixed hostname, no user data). The only non-HTTPS fetches are `chrome.runtime.getURL()` loads of the bundled ringtone MP3s.
 
 ## 5. Package contents (the uploaded zip)
 

@@ -70,11 +70,14 @@ IT administrator.
   presence, and exclude locked/idle time from "available" and set your status to
   "away"). Only the lock/idle state is used; no keystroke or activity content is
   read.
-- **`alarms`** — periodic, low-frequency processing of Team Metrics.
+- **`alarms`** — periodic, low-frequency processing of Team Metrics, and the
+  30-minute remote disable check.
 - **Host permission for `*.dynamics.com`** — to detect the incoming-call popup and
   read your presence inside your Dynamics 365 tab.
 - **Host permission for the metrics server** — to send metrics and status to your
   organisation's server.
+- **Host permission for `dns.google`** — for the remote disable check described
+  below.
 - **Microphone** — Chrome requires microphone permission to enumerate audio output
   devices *by name* so you can pick a specific speaker. The microphone is never
   recorded, listened to, or transmitted; the stream is opened briefly and
@@ -82,8 +85,16 @@ IT administrator.
 
 ## Third parties
 
-The extension contacts no third-party server. It communicates only with the
-Dynamics 365 tab you already have open and your organisation's metrics server.
+Apart from the remote disable check below, the extension contacts no third-party
+server. It communicates only with the Dynamics 365 tab you already have open, your
+organisation's metrics server, and Google Public DNS.
+
+**Remote disable check:** about every 30 minutes (and at browser start) the
+extension sends a DNS-over-HTTPS lookup to Google Public DNS (`dns.google`) for a
+fixed TXT record controlled by the deployment administrator. If the record is
+present, the extension disables itself and shows "Disabled by admin". The request
+contains only that fixed hostname — no personal data, settings, or metrics — though,
+like any web request, Google receives your IP address.
 
 ## Contact
 

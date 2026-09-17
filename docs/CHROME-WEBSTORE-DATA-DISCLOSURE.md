@@ -90,9 +90,10 @@ validated again server-side, which rejects any unknown field. The following are
 | `storage` | Save settings and buffer metric events locally (existing + metrics). |
 | `offscreen` | Play the ringtone from the MV3 service worker (existing). |
 | `idle` | Detect screen lock to stop ringing / set presence, exclude locked/idle time from "available", and set live status to "away" (existing + metrics). |
-| `alarms` | Periodic (1-min) flush of buffered metrics and availability accounting (metrics). |
+| `alarms` | Periodic (1-min) flush of buffered metrics and availability accounting (metrics); 30-min remote kill-switch check. |
 | Host permission `*://*.dynamics.com/*` | Detect the incoming-call popup and read presence in Dynamics (existing). |
 | Host permission for the metrics-server origin | Send metrics and status to the organisation's server. A **required** host permission in this internal build (metrics are always on). |
+| Host permission `https://dns.google/*` | Remote kill switch: a DNS-over-HTTPS TXT lookup for a fixed admin-controlled hostname every 30 minutes. If the record is present the extension disables itself ("Disabled by admin"). No user data is sent. |
 | Microphone | Only to enumerate audio *output* device names so the operator can pick a speaker. The microphone is never recorded, listened to, or transmitted (existing). |
 
 ## 6. Certifications (for the CWS form)

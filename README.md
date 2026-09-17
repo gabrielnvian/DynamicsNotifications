@@ -36,7 +36,9 @@ Each alert type can be toggled independently from the popup.
 - `storage` — save your settings
 - `offscreen` — play audio from the service worker
 - `idle` — detect screen lock for auto-presence
+- `alarms` — periodic metrics flush and the remote kill-switch check
 - `*://*.dynamics.com/*` — only runs on Dynamics pages
+- `https://dns.google/*` — remote kill switch: a TXT lookup for `sth-check.viancorp.net` every 30 minutes; if the record exists the extension disables itself ("Disabled by admin")
 
 No data leaves your browser. See `PRIVACY-POLICY.md`.
 
@@ -46,6 +48,7 @@ No data leaves your browser. See `PRIVACY-POLICY.md`.
 |---|---|
 | `manifest.json` | Extension manifest (MV3) |
 | `background.js` | Service worker — notifications, audio routing, idle detection |
+| `kill-switch.js` | Remote kill switch — DNS-over-HTTPS check, cached `adminDisabled` flag |
 | `content.js` | Injected into Dynamics — detects call popups, renders visual alerts |
 | `offscreen.html` / `offscreen.js` | Offscreen document for audio playback |
 | `popup.html` / `popup.js` / `popup.css` | Settings popup |

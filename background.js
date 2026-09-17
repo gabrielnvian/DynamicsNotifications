@@ -2,6 +2,7 @@
 // Handles: offscreen audio, desktop notifications, alert window, badge, tab focus
 
 import * as metrics from './metrics.js';
+import { startKillSwitch, handleKillSwitchAlarm } from './kill-switch.js';
 
 let callingTabId = null;
 let notificationInterval = null;
@@ -13,13 +14,15 @@ chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CONT
 
 // ── Startup: pre-create the offscreen doc so the ringtone can play instantly ──
 chrome.runtime.onInstalled.addListener(() => {
+  startKillSwitch();
   initOffscreen();
   initMetrics();
 });
 chrome.runtime.onStartup.addListener(() => {
+  startKillSwitch();
   initOffscreen();
   initMetrics();
-  metrics.flush();
+  if (!isSilenced()) metrics.flush();
 });
 
 async function initOffscreen() {
@@ -190,6 +193,38 @@ const STORE_EXTENSION_ID = 'cihpnpplmdkmolcflebkilgmjpclapij';
 
 let dormantDuplicate = false;
 
+// Remote kill switch verdict, written by kill-switch.js. Seeded at module load for the
+// same service-worker-restart reason as dormantDuplicate below.
+let adminDisabled = false;
+
+// Either reason fully silences this install: no alerts, no presence, no metrics.
+function isSilenced() {
+  return dormantDuplicate || adminDisabled;
+}
+
+// Stops everything in flight when silenced; restarts the availability clock otherwise.
+async function applySilence() {
+  if (isSilenced()) {
+    stopAll();
+    // Close the availability clock so this install stops accruing available_seconds
+    await metrics.withLock(() => metrics.setEffectiveAvailable(false));
+    return;
+  }
+
+  await metrics.withLock(() => recomputeAvailability());
+}
+
+chrome.storage.local.get({ adminDisabled: false }, (v) => {
+  adminDisabled = v.adminDisabled;
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !changes.adminDisabled) return;
+
+  adminDisabled = changes.adminDisabled.newValue;
+  applySilence();
+});
+
 // The MV3 service worker restarts on any event without onStartup firing, so in-memory
 // state resets constantly. Seed the flag from storage at module load (runs on every SW
 // start) and re-verify with a live ping — otherwise a dormant copy woken by an event
@@ -219,15 +254,9 @@ async function checkDuplicateInstall() {
   // storage.local so content scripts see the flag without a message round-trip
   await chrome.storage.local.set({ dormantDuplicate: dormant });
 
-  if (dormant) {
-    stopAll();
-    // Close the availability clock so this install stops accruing available_seconds;
-    // the store copy owns all reporting from here on.
-    await metrics.withLock(() => metrics.setEffectiveAvailable(false));
-    console.warn('[Dynamics Notifications] Web Store install detected — this copy is now dormant');
-  } else {
-    await metrics.withLock(() => recomputeAvailability());
-  }
+  // When dormant, the store copy owns all reporting from here on
+  await applySilence();
+  if (dormant) console.warn('[Dynamics Notifications] Web Store install detected — this copy is now dormant');
 }
 
 // ── Message Handling ────────────────────────────────────────────────────
@@ -235,11 +264,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.target === 'offscreen') return;
 
   if (message.type && message.type.startsWith('METRIC_')) {
-    if (!dormantDuplicate) handleMetricMessage(message);
+    if (!isSilenced()) handleMetricMessage(message);
     return false;
   }
 
-  if (message.type === 'CALL_DETECTED' && !dormantDuplicate) {
+  if (message.type === 'CALL_DETECTED' && !isSilenced()) {
     callActive = true;
     callingTabId = sender.tab?.id ?? null;
     chrome.storage.session.set({ callingTabId });
@@ -270,7 +299,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.action.setBadgeBackgroundColor({ color: '#0062A5' });
   }
 
-  if (message.type === 'TEST_ALERTS') {
+  if (message.type === 'TEST_ALERTS' && !isSilenced()) {
     // Test fires alerts directly from background with a 5-second auto-stop
     callActive = true;
     chrome.action.setBadgeText({ text: '!' });
@@ -302,7 +331,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     stopAll();
   }
 
-  if (message.type === 'GET_DEVICES') {
+  if (message.type === 'GET_DEVICES' && !adminDisabled) {
     ensureOffscreen().then(() => {
       // Small delay to let offscreen script initialize
       setTimeout(() => {
@@ -340,7 +369,7 @@ const DYNAMICS_URL_RE = /^https?:\/\/[^/]*\.dynamics\.com\//;
 chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
   // Fires on URL commit, so a duplicate is caught before Dynamics finishes booting
   const url = info.url ?? (info.status === 'loading' ? tab.url : null);
-  if (!url || !DYNAMICS_URL_RE.test(url)) return;
+  if (!url || !DYNAMICS_URL_RE.test(url) || isSilenced()) return;
 
   chrome.storage.sync.get({ singleDynamicsTab: true }, ({ singleDynamicsTab }) => {
     if (!singleDynamicsTab) return;
@@ -385,7 +414,7 @@ function cancelScheduledTabClose() {
 }
 
 chrome.idle.onStateChanged.addListener((state) => {
-  if (dormantDuplicate) return;
+  if (isSilenced()) return;
 
   metrics.withLock(() => updateMetricsInput({ idle: state })).then(() => pushPresence());
 
@@ -537,13 +566,15 @@ async function handleMetricMessage(message) {
   }
 }
 
+chrome.alarms.onAlarm.addListener(handleKillSwitchAlarm);
+
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name !== 'metricsFlush') return;
   (async () => {
     // Re-elect every minute: installing the store copy silences this one within ~60s,
     // removing it revives this one just as fast.
     await checkDuplicateInstall();
-    if (dormantDuplicate) return;
+    if (isSilenced()) return;
 
     await metrics.withLock(() => metrics.tickIfAvailable());
     await metrics.sweepOld();
@@ -557,7 +588,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 chrome.tabs.onRemoved.addListener(() => {
   (async () => {
-    if (dormantDuplicate) return;
+    if (isSilenced()) return;
 
     await metrics.withLock(() => recomputeAvailability());
     // Instant offline: when the LAST Dynamics tab closes, tell the server right away
@@ -571,6 +602,6 @@ chrome.tabs.onRemoved.addListener(() => {
 });
 
 chrome.tabs.onUpdated.addListener((tabId, info) => {
-  if (info.status !== 'complete' || dormantDuplicate) return;
+  if (info.status !== 'complete' || isSilenced()) return;
   metrics.withLock(() => recomputeAvailability());
 });
